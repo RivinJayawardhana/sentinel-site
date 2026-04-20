@@ -14,12 +14,10 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-const workerRoute = `/workers/${import.meta.env.VITE_EMPLOYEE_ID ?? "EMP001"}`;
-
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Live Monitoring", url: "/monitoring", icon: Radio },
-  { title: "Workers", url: workerRoute, icon: Users },
+  { title: "Workers", url: "/workers", icon: Users },
   { title: "Location & Zones", url: "/zones", icon: Shield },
   { title: "Alerts", url: "/alerts", icon: AlertTriangle },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
@@ -52,7 +50,10 @@ export function AppSidebar() {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-2 py-4">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.url;
+          const isActive =
+            item.url === "/workers"
+              ? location.pathname.startsWith("/workers")
+              : location.pathname === item.url;
           return (
             <NavLink
               key={item.url}

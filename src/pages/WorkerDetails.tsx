@@ -6,6 +6,7 @@ import { useMonitoringData } from "@/hooks/useMonitoringData";
 import { useParams, useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Heart, Thermometer, Wind, MapPin, ArrowLeft, CheckCircle, MessageSquare, AlertTriangle } from "lucide-react";
+import { DeviceChangeDialog } from "@/components/DeviceChangeDialog";
 
 const statusColors: Record<string, string> = {
   normal: "bg-success text-success-foreground",
@@ -133,6 +134,11 @@ const WorkerDetails = () => {
           <Card>
             <CardHeader><CardTitle className="text-base">Actions</CardTitle></CardHeader>
             <CardContent className="space-y-3">
+              <DeviceChangeDialog
+                employeeId={worker.id}
+                currentDeviceId={worker.deviceId}
+                employeeName={worker.name}
+              />
               <Button className="w-full justify-start gap-2" variant="outline"><CheckCircle className="h-4 w-4" /> Acknowledge Alert</Button>
               <Button className="w-full justify-start gap-2" variant="outline"><MessageSquare className="h-4 w-4" /> Add Note</Button>
               <Button className="w-full justify-start gap-2 bg-critical text-critical-foreground hover:bg-critical/90"><AlertTriangle className="h-4 w-4" /> Escalate</Button>

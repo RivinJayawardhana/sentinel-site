@@ -1,4 +1,12 @@
-import type { BootstrapResponse, Thresholds } from "@/types/monitoring";
+import type { BootstrapResponse, IoTReading, Thresholds } from "@/types/monitoring";
+
+const IOT_API_URL = "https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data";
+
+export async function fetchIoTData(): Promise<IoTReading> {
+  const res = await fetch(IOT_API_URL);
+  if (!res.ok) throw new Error(`IoT fetch failed (${res.status})`);
+  return (await res.json()) as IoTReading;
+}
 
 const BASE_URL = import.meta.env.VITE_BACKEND_API_URL ?? (typeof window !== "undefined" && window.location.hostname === "localhost" ? "http://localhost:8080" : "http://localhost:4000");
 

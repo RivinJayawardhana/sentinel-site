@@ -3,7 +3,9 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface CreateWorkerDialogProps {
   onCreated?: () => void;
@@ -11,6 +13,7 @@ interface CreateWorkerDialogProps {
 
 export function CreateWorkerDialog({ onCreated }: CreateWorkerDialogProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -44,6 +47,7 @@ export function CreateWorkerDialog({ onCreated }: CreateWorkerDialogProps) {
       });
       if (!res.ok) throw new Error("Failed to create worker");
       toast({ title: "Worker created", description: `${name} added successfully.` });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"] });
       setOpen(false);
       setName(""); setEmail(""); setRole("worker"); setDeviceId(""); setShift("Morning"); setZone("Zone A");
       onCreated?.();
@@ -74,34 +78,43 @@ export function CreateWorkerDialog({ onCreated }: CreateWorkerDialogProps) {
           </div>
           <div>
             <Label>Role</Label>
-            <select className="w-full border rounded px-2 py-1" value={role} onChange={e => setRole(e.target.value)}>
-              <option value="worker">Worker</option>
-              <option value="safety_officer">Safety Officer</option>
-              <option value="manager">Manager</option>
-              <option value="admin">Admin</option>
-            </select>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="worker">Worker</SelectItem>
+                <SelectItem value="safety_officer">Safety Officer</SelectItem>
+                <SelectItem value="manager">Manager</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label>Device ID (optional)</Label>
-            <Input value={deviceId} onChange={e => setDeviceId(e.target.value)} placeholder="Device ID" />
+            <Input value={deviceId} onChange={e => setDeviceId(e.target.value)} placeholder="e.g. DEV-001" />
           </div>
           <div>
             <Label>Shift</Label>
-            <select className="w-full border rounded px-2 py-1" value={shift} onChange={e => setShift(e.target.value)}>
-              <option value="Morning">Morning</option>
-              <option value="Afternoon">Afternoon</option>
-              <option value="Night">Night</option>
-            </select>
+            <Select value={shift} onValueChange={setShift}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Morning">Morning</SelectItem>
+                <SelectItem value="Afternoon">Afternoon</SelectItem>
+                <SelectItem value="Night">Night</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label>Zone</Label>
-            <select className="w-full border rounded px-2 py-1" value={zone} onChange={e => setZone(e.target.value)}>
-              <option value="Zone A">Zone A</option>
-              <option value="Zone B">Zone B</option>
-              <option value="Zone C">Zone C</option>
-              <option value="Zone D">Zone D</option>
-              <option value="Zone E">Zone E</option>
-            </select>
+            <Select value={zone} onValueChange={setZone}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Zone A">Zone A</SelectItem>
+                <SelectItem value="Zone B">Zone B</SelectItem>
+                <SelectItem value="Zone C">Zone C</SelectItem>
+                <SelectItem value="Zone D">Zone D</SelectItem>
+                <SelectItem value="Zone E">Zone E</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <DialogFooter>

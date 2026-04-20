@@ -4,10 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { useMonitoringData } from "@/hooks/useMonitoringData";
-import { useEffect, useState } from "react";
+import { useMonitoringData, useIoTData } from "@/hooks/useMonitoringData";
+import { useEffect, useRef, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Search, Heart, Thermometer, Wind, Radio } from "lucide-react";
+import { Search, Heart, Thermometer, Wind, Radio, Droplets, MapPin } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   normal: "bg-success text-success-foreground",
@@ -15,13 +15,31 @@ const statusColors: Record<string, string> = {
   critical: "bg-critical text-critical-foreground",
 };
 
+const MAX_HISTORY = 20;
+
 const LiveMonitoring = () => {
   const { data, isLoading, error } = useMonitoringData();
+  const { data: iot } = useIoTData();
   const workers = data?.workers ?? [];
 
   const [selectedId, setSelectedId] = useState("");
   const [search, setSearch] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const iotHistory = useRef<Array<{ time: string; temperature: number; air_quality: number; humidity: number }>>([]);
+  const [iotChart, setIotChart] = useState(iotHistory.current);
+
+  useEffect(() => {
+    if (!iot) return;
+    const point = {
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      temperature: iot.temperature,
+      air_quality: iot.air_quality,
+      humidity: iot.humidity,
+    };
+    iotHistory.current = [...iotHistory.current.slice(-(MAX_HISTORY - 1)), point];
+    setIotChart([...iotHistory.current]);
+  }, [iot]);
 
   useEffect(() => {
     if (!selectedId && workers.length > 0) {
@@ -56,6 +74,85 @@ const LiveMonitoring = () => {
 
   return (
     <AppLayout>
+      {/* IoT Live Sensor Strip */}
+      {iot && (
+        <div className="mb-5 grid grid-cols-5 gap-3">
+          <div className="col-span-5 flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            <span className="inline-block h-2 w-2 rounded-full bg-success animate-pulse" />
+            Live Sensor — Device {iot.id}
+          </div>
+
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-warning/10 p-2.5"><Thermometer className="h-5 w-5 text-warning" /></div>
+              <div>
+                <p className="text-2xl font-bold">{iot.temperature.toFixed(1)}<span className="text-xs font-normal text-muted-foreground ml-1">°C</span></p>
+                <p className="text-xs text-muted-foreground">Temperature</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-success/10 p-2.5"><Wind className="h-5 w-5 text-success" /></div>
+              <div>
+                <p className="text-2xl font-bold">{iot.air_quality.toFixed(0)}<span className="text-xs font-normal text-muted-foreground ml-1">AQI</span></p>
+                <p className="text-xs text-muted-foreground">Air Quality</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-primary/10 p-2.5"><Droplets className="h-5 w-5 text-primary" /></div>
+              <div>
+                <p className="text-2xl font-bold">{iot.humidity.toFixed(1)}<span className="text-xs font-normal text-muted-foreground ml-1">%</span></p>
+                <p className="text-xs text-muted-foreground">Humidity</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-muted p-2.5"><MapPin className="h-5 w-5 text-muted-foreground" /></div>
+              <div>
+                <p className="text-sm font-bold">{iot.latitude.toFixed(4)}, {iot.longitude.toFixed(4)}</p>
+                <p className="text-xs text-muted-foreground">GPS (lat, lon)</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="col-span-1">
+            <CardContent className="p-4 h-full flex flex-col justify-center">
+              <p className="text-xs text-muted-foreground mb-1">Refreshes every 5s</p>
+              <p className="text-xs font-mono text-muted-foreground">ID: {iot.id}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* IoT Chart */}
+      {iotChart.length > 1 && (
+        <Card className="mb-5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Live Sensor History</CardTitle>
+          </CardHeader>
+          <CardContent className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={iotChart}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }} />
+                <Line type="monotone" dataKey="temperature" stroke="hsl(45, 96%, 56%)" strokeWidth={2} dot={false} name="Temp °C" />
+                <Line type="monotone" dataKey="air_quality" stroke="hsl(122, 47%, 33%)" strokeWidth={2} dot={false} name="AQI" />
+                <Line type="monotone" dataKey="humidity" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={false} name="Humidity %" />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-12 gap-6 h-[calc(100vh-8rem)]">
         {/* Left Panel - Worker List */}
         <div className="col-span-3 flex flex-col gap-3">

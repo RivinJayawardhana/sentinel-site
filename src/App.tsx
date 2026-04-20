@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import LiveMonitoring from "./pages/LiveMonitoring";
+import Workers from "./pages/Workers";
 import WorkerDetails from "./pages/WorkerDetails";
 import LocationZones from "./pages/LocationZones";
 import AlertsCenter from "./pages/AlertsCenter";
@@ -32,7 +33,7 @@ const App = () => {
               <Route path="/login" element={<Login />} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/monitoring" element={<ProtectedRoute><LiveMonitoring /></ProtectedRoute>} />
-              <Route path="/workers" element={<Navigate to={`/workers/${defaultEmployeeId}`} replace />} />
+              <Route path="/workers" element={<ProtectedRoute><Workers /></ProtectedRoute>} />
               <Route path="/workers/:id" element={<ProtectedRoute><WorkerDetails /></ProtectedRoute>} />
               <Route path="/zones" element={<ProtectedRoute><LocationZones /></ProtectedRoute>} />
               <Route path="/alerts" element={<ProtectedRoute><AlertsCenter /></ProtectedRoute>} />

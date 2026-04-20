@@ -44,6 +44,15 @@ export interface Thresholds {
   airQuality: { min: number; criticalMin: number };
 }
 
+export interface IoTReading {
+  id: string;
+  temperature: number;
+  air_quality: number;
+  humidity: number;
+  latitude: number;
+  longitude: number;
+}
+
 export interface BootstrapResponse {
   workers: Worker[];
   alerts: Alert[];

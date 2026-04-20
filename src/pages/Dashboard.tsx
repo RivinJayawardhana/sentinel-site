@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMonitoringData } from "@/hooks/useMonitoringData";
+import { CreateWorkerDialog } from "@/components/CreateWorkerDialog";
 import { Users, AlertTriangle, Activity, ShieldAlert, Clock } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -66,6 +67,10 @@ const Dashboard = () => {
   return (
     <AppLayout>
       <div className="space-y-6">
+        {/* Create Worker Button */}
+        <div className="flex justify-end">
+          <CreateWorkerDialog />
+        </div>
         {/* Critical Alert Banner */}
         {criticalAlerts.length > 0 && (
           <div className="flex items-center gap-3 rounded-lg bg-critical/10 border border-critical/30 p-4">
