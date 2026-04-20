@@ -2,16 +2,19 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { workers, dailyAlertData, riskDistribution, generateTimeSeries } from "@/data/mockData";
-import { useMemo } from "react";
+import { useMonitoringData } from "@/hooks/useMonitoringData";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, ScatterChart, Scatter,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { Download } from "lucide-react";
 
 const Analytics = () => {
-  const hrTrend = useMemo(() => generateTimeSeries(80, 36.8, 85), []);
+  const { data, isLoading, error } = useMonitoringData();
+  const workers = data?.workers ?? [];
+  const dailyAlertData = data?.dailyAlertData ?? [];
+  const riskDistribution = data?.riskDistribution ?? [];
+  const hrTrend = data?.timeSeries ?? [];
 
   const scatterData = workers.map((w) => ({
     temperature: w.temperature,
@@ -29,6 +32,14 @@ const Analytics = () => {
     a.download = "safety-report.csv";
     a.click();
   };
+
+  if (isLoading) {
+    return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading analytics...</div></AppLayout>;
+  }
+
+  if (error) {
+    return <AppLayout><div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">Failed to load analytics.</div></AppLayout>;
+  }
 
   return (
     <AppLayout>

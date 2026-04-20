@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { workers, generateTimeSeries } from "@/data/mockData";
-import { useState, useMemo } from "react";
+import { useMonitoringData } from "@/hooks/useMonitoringData";
+import { useEffect, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Search, Heart, Thermometer, Wind, Radio } from "lucide-react";
 
@@ -16,19 +16,43 @@ const statusColors: Record<string, string> = {
 };
 
 const LiveMonitoring = () => {
-  const [selectedId, setSelectedId] = useState(workers[0].id);
+  const { data, isLoading, error } = useMonitoringData();
+  const workers = data?.workers ?? [];
+
+  const [selectedId, setSelectedId] = useState("");
   const [search, setSearch] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  const selected = workers.find((w) => w.id === selectedId)!;
-  const timeSeries = useMemo(
-    () => generateTimeSeries(selected.heartRate, selected.temperature, selected.airQuality),
-    [selectedId]
-  );
+  useEffect(() => {
+    if (!selectedId && workers.length > 0) {
+      setSelectedId(workers[0].id);
+    }
+  }, [workers, selectedId]);
+
+  const selected = workers.find((w) => w.id === selectedId) ?? workers[0];
+  const timeSeries = data?.timeSeries ?? [];
 
   const filteredWorkers = workers.filter(
     (w) => w.name.toLowerCase().includes(search.toLowerCase()) || w.id.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading live telemetry...</div>
+      </AppLayout>
+    );
+  }
+
+  if (error || !selected) {
+    return (
+      <AppLayout>
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">
+          Failed to load live monitoring data.
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

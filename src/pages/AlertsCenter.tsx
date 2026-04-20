@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { alerts, type Alert } from "@/data/mockData";
+import { useMonitoringData } from "@/hooks/useMonitoringData";
+import type { Alert } from "@/types/monitoring";
 import { useState } from "react";
 import { CheckCircle, AlertTriangle, ArrowUpCircle } from "lucide-react";
 
@@ -23,6 +24,8 @@ const statusColors: Record<string, string> = {
 };
 
 const AlertsCenter = () => {
+  const { data, isLoading, error } = useMonitoringData();
+  const alerts = data?.alerts ?? [];
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
@@ -32,6 +35,14 @@ const AlertsCenter = () => {
     if (statusFilter !== "all" && a.status !== statusFilter) return false;
     return true;
   });
+
+  if (isLoading) {
+    return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading alerts...</div></AppLayout>;
+  }
+
+  if (error) {
+    return <AppLayout><div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">Failed to load alerts.</div></AppLayout>;
+  }
 
   return (
     <AppLayout>

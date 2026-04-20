@@ -14,10 +14,12 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
+const workerRoute = `/workers/${import.meta.env.VITE_EMPLOYEE_ID ?? "EMP001"}`;
+
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Live Monitoring", url: "/monitoring", icon: Radio },
-  { title: "Workers", url: "/workers", icon: Users },
+  { title: "Workers", url: workerRoute, icon: Users },
   { title: "Location & Zones", url: "/zones", icon: Shield },
   { title: "Alerts", url: "/alerts", icon: AlertTriangle },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },

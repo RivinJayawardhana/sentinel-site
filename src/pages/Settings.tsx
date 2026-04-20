@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator";
-import { thresholds, zones, workers } from "@/data/mockData";
-import { useState } from "react";
+import { useMonitoringData, useUpdateThresholds } from "@/hooks/useMonitoringData";
+import { useEffect, useState } from "react";
 import { Save, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { DeviceChangeDialog } from "@/components/DeviceChangeDialog";
+import { CreateWorkerDialog } from "@/components/CreateWorkerDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,12 +26,15 @@ import {
 
 const Settings = () => {
   const { toast } = useToast();
-  const [hrMax, setHrMax] = useState(String(thresholds.heartRate.max));
-  const [hrCritical, setHrCritical] = useState(String(thresholds.heartRate.criticalMax));
-  const [tempMax, setTempMax] = useState(String(thresholds.temperature.max));
-  const [tempCritical, setTempCritical] = useState(String(thresholds.temperature.criticalMax));
-  const [aqMin, setAqMin] = useState(String(thresholds.airQuality.min));
-  const [aqCritical, setAqCritical] = useState(String(thresholds.airQuality.criticalMin));
+  const { data, isLoading, error } = useMonitoringData();
+  const saveThresholds = useUpdateThresholds();
+
+  const [hrMax, setHrMax] = useState("100");
+  const [hrCritical, setHrCritical] = useState("120");
+  const [tempMax, setTempMax] = useState("37.5");
+  const [tempCritical, setTempCritical] = useState("38.0");
+  const [aqMin, setAqMin] = useState("70");
+  const [aqCritical, setAqCritical] = useState("50");
 
   const [notifications, setNotifications] = useState({
     email: true,
@@ -39,22 +43,52 @@ const Settings = () => {
     criticalOnly: false,
   });
 
-  const handleSave = () => {
-    toast({ title: "Settings saved", description: "Threshold configurations updated successfully." });
-  };
+  const thresholds = data?.thresholds;
+  const zones = data?.zones ?? [];
+  const workers = data?.workers ?? [];
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const devices = workers.map((w) => ({
-    id: w.deviceId,
-    worker: w.name,
-    status: Math.random() > 0.1 ? "online" : "offline",
-    battery: Math.floor(Math.random() * 40 + 60),
-  }));
+  useEffect(() => {
+    if (!thresholds) {
+      return;
+    }
+    setHrMax(String(thresholds.heartRate.max));
+    setHrCritical(String(thresholds.heartRate.criticalMax));
+    setTempMax(String(thresholds.temperature.max));
+    setTempCritical(String(thresholds.temperature.criticalMax));
+    setAqMin(String(thresholds.airQuality.min));
+    setAqCritical(String(thresholds.airQuality.criticalMin));
+  }, [thresholds]);
+
+  const handleSave = async () => {
+    try {
+      await saveThresholds.mutateAsync({
+        heartRate: { min: 60, max: Number(hrMax), criticalMax: Number(hrCritical) },
+        temperature: { min: 35.5, max: Number(tempMax), criticalMax: Number(tempCritical) },
+        airQuality: { min: Number(aqMin), criticalMin: Number(aqCritical) },
+      });
+      toast({ title: "Settings saved", description: "Threshold configurations updated successfully." });
+    } catch {
+      toast({ title: "Save failed", description: "Could not persist thresholds to backend.", variant: "destructive" });
+    }
+  };
 
   const users = [
     { name: "John Smith", email: "john@safeguard.io", role: "Safety Officer" },
     { name: "Maria Garcia", email: "maria@safeguard.io", role: "Manager" },
     { name: "Robert Lee", email: "robert@safeguard.io", role: "Admin" },
   ];
+
+  // Refresh workers after creating a new one
+  const handleWorkerCreated = () => setRefreshKey((k) => k + 1);
+
+  if (isLoading) {
+    return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading settings...</div></AppLayout>;
+  }
+
+  if (error) {
+    return <AppLayout><div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">Failed to load settings.</div></AppLayout>;
+  }
 
   return (
     <AppLayout>
@@ -162,9 +196,12 @@ const Settings = () => {
 
         {/* Device Management */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Device Management</CardTitle>
-            <CardDescription>Monitor IoT device status and connectivity</CardDescription>
+          <CardHeader className="flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Device Management</CardTitle>
+              <CardDescription>Monitor IoT device status and change device assignments</CardDescription>
+            </div>
+            <CreateWorkerDialog onCreated={handleWorkerCreated} />
           </CardHeader>
           <CardContent>
             <Table>
@@ -173,20 +210,26 @@ const Settings = () => {
                   <TableHead>Device ID</TableHead>
                   <TableHead>Assigned Worker</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Battery</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {devices.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell className="font-mono text-sm">{d.id}</TableCell>
-                    <TableCell>{d.worker}</TableCell>
+                {workers.map((w) => (
+                  <TableRow key={w.id}>
+                    <TableCell className="font-mono text-sm">{w.deviceId}</TableCell>
+                    <TableCell>{w.name}</TableCell>
                     <TableCell>
-                      <Badge className={d.status === "online" ? "bg-success text-success-foreground" : "bg-muted text-muted-foreground"}>
-                        {d.status}
+                      <Badge className="bg-success text-success-foreground">
+                        connected
                       </Badge>
                     </TableCell>
-                    <TableCell>{d.battery}%</TableCell>
+                    <TableCell>
+                      <DeviceChangeDialog
+                        employeeId={w.id}
+                        currentDeviceId={w.deviceId}
+                        employeeName={w.name}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { workers, alerts } from "@/data/mockData";
+import { useMonitoringData } from "@/hooks/useMonitoringData";
 import { Users, AlertTriangle, Activity, ShieldAlert, Clock } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -16,9 +16,13 @@ const statusColors: Record<string, string> = {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { data, isLoading, error } = useMonitoringData();
   const [zoneFilter, setZoneFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [shiftFilter, setShiftFilter] = useState("all");
+
+  const workers = data?.workers ?? [];
+  const alerts = data?.alerts ?? [];
 
   const normalCount = workers.filter((w) => w.status === "normal").length;
   const warningCount = workers.filter((w) => w.status === "warning").length;
@@ -40,6 +44,24 @@ const Dashboard = () => {
     { label: "Critical", value: criticalCount, icon: ShieldAlert, color: "text-critical" },
     { label: "Active Alerts", value: activeAlerts.length, icon: AlertTriangle, color: "text-critical" },
   ];
+
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading monitoring data...</div>
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout>
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">
+          Failed to load dashboard data.
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

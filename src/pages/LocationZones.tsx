@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { workers, zones, alerts } from "@/data/mockData";
+import { useMonitoringData } from "@/hooks/useMonitoringData";
 import { useState } from "react";
 import { Search, AlertTriangle } from "lucide-react";
 
@@ -27,12 +27,24 @@ const zonePositions: Record<string, { x: number; y: number; w: number; h: number
 };
 
 const LocationZones = () => {
+  const { data, isLoading, error } = useMonitoringData();
+  const workers = data?.workers ?? [];
+  const zones = data?.zones ?? [];
+  const alerts = data?.alerts ?? [];
   const [search, setSearch] = useState("");
   const zoneBreachAlerts = alerts.filter((a) => a.type === "zone_breach");
 
   const filteredWorkers = search
     ? workers.filter((w) => w.name.toLowerCase().includes(search.toLowerCase()) || w.id.toLowerCase().includes(search.toLowerCase()))
     : workers;
+
+  if (isLoading) {
+    return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading location data...</div></AppLayout>;
+  }
+
+  if (error) {
+    return <AppLayout><div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">Failed to load location and zones.</div></AppLayout>;
+  }
 
   return (
     <AppLayout>

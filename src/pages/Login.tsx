@@ -6,22 +6,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/context/AuthContext";
+import type { UserRole } from "@/context/AuthContext";
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login, isLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("");
+  const [role, setRole] = useState<UserRole>("admin");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
+    
     if (!email || !password || !role) {
       setError("Please fill in all fields");
       return;
     }
-    navigate("/dashboard");
+
+    try {
+      await login(email, password, role);
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed. Please try again.");
+    }
   };
 
   return (
@@ -76,19 +87,25 @@ const Login = () => {
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
-              <Select value={role} onValueChange={(v) => { setRole(v); setError(""); }}>
+              <Select value={role} onValueChange={(v) => { setRole(v as UserRole); setError(""); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select your role" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="safety_officer">Safety Officer</SelectItem>
                   <SelectItem value="manager">Manager</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" className="w-full text-base font-semibold h-11">
-              Sign In
+            <Button type="submit" className="w-full text-base font-semibold h-11" disabled={isLoading}>
+              {isLoading ? "Signing In..." : "Sign In"}
             </Button>
+            <div className="mt-4 rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-semibold">Demo Credentials:</p>
+              <p>Email: <code className="text-foreground font-mono">admin@safeguard.io</code></p>
+              <p>Password: <code className="text-foreground font-mono">Admin@123</code></p>
+            </div>
           </form>
         </CardContent>
       </Card>

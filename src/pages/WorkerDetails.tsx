@@ -2,9 +2,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { workers, alerts, generateTimeSeries } from "@/data/mockData";
+import { useMonitoringData } from "@/hooks/useMonitoringData";
 import { useParams, useNavigate } from "react-router-dom";
-import { useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Heart, Thermometer, Wind, MapPin, ArrowLeft, CheckCircle, MessageSquare, AlertTriangle } from "lucide-react";
 
@@ -15,14 +14,22 @@ const statusColors: Record<string, string> = {
 };
 
 const WorkerDetails = () => {
+  const { data, isLoading, error } = useMonitoringData();
   const { id } = useParams();
   const navigate = useNavigate();
+  const workers = data?.workers ?? [];
+  const alerts = data?.alerts ?? [];
   const worker = workers.find((w) => w.id === id);
   const workerAlerts = alerts.filter((a) => a.workerId === id);
-  const timeSeries = useMemo(
-    () => worker ? generateTimeSeries(worker.heartRate, worker.temperature, worker.airQuality) : [],
-    [id]
-  );
+  const timeSeries = data?.timeSeries ?? [];
+
+  if (isLoading) {
+    return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading worker details...</div></AppLayout>;
+  }
+
+  if (error) {
+    return <AppLayout><div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">Failed to load worker details.</div></AppLayout>;
+  }
 
   if (!worker) {
     return <AppLayout><div className="flex items-center justify-center h-64"><p className="text-muted-foreground">Worker not found</p></div></AppLayout>;
