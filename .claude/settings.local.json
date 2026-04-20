@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data\")"
+    ]
+  }
+}

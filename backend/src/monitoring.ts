@@ -10,20 +10,44 @@ import type {
   WorkerStatus,
 } from "./types";
 
-const sourceRecordSchema = z.object({
+// Flat format: {id, temperature, air_quality, humidity, latitude, longitude}
+const flatRecordSchema = z.object({
   id: z.string(),
-  payload: z
-    .object({
-      temperature: z.number(),
-      humidity: z.number(),
-      air_quality: z.number(),
-      latitude: z.number(),
-      longitude: z.number(),
-    })
-    .passthrough(),
+  temperature: z.number(),
+  humidity: z.number(),
+  air_quality: z.number(),
+  latitude: z.number(),
+  longitude: z.number(),
 });
 
-type SourceRecord = z.infer<typeof sourceRecordSchema>;
+// Nested format: {id, payload: {temperature, ...}}
+const nestedRecordSchema = z.object({
+  id: z.string(),
+  payload: z.object({
+    temperature: z.number(),
+    humidity: z.number(),
+    air_quality: z.number(),
+    latitude: z.number(),
+    longitude: z.number(),
+  }).passthrough(),
+});
+
+type FlatRecord = z.infer<typeof flatRecordSchema>;
+type NestedRecord = z.infer<typeof nestedRecordSchema>;
+type SourceRecord = { id: string; fields: { temperature: number; humidity: number; air_quality: number; latitude: number; longitude: number } };
+
+function parseRecord(row: unknown): SourceRecord | null {
+  const flat = flatRecordSchema.safeParse(row);
+  if (flat.success) {
+    const { id, ...fields } = flat.data;
+    return { id, fields };
+  }
+  const nested = nestedRecordSchema.safeParse(row);
+  if (nested.success) {
+    return { id: nested.data.id, fields: nested.data.payload as FlatRecord };
+  }
+  return null;
+}
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
@@ -45,32 +69,26 @@ function estimateHeartRate(temperature: number, humidity: number): number {
 }
 
 export function normalizeSourceRecords(payload: unknown, employeeId: string): TelemetryPoint[] {
-  if (!Array.isArray(payload)) {
-    return [];
-  }
-
+  // Accept both a single object and an array
+  const rows = Array.isArray(payload) ? payload : [payload];
   const points: TelemetryPoint[] = [];
 
-  for (const row of payload) {
-    const parsed = sourceRecordSchema.safeParse(row);
-    if (!parsed.success) {
-      continue;
-    }
+  for (const row of rows) {
+    const source = parseRecord(row);
+    if (!source) continue;
 
-    const source = parsed.data as SourceRecord;
     const tsFromId = Number(source.id);
     const ts = Number.isFinite(tsFromId) ? tsFromId : Date.now();
-    const point: TelemetryPoint = {
+    points.push({
       employeeId,
       telemetryId: source.id,
       ts,
-      temperature: source.payload.temperature,
-      humidity: source.payload.humidity,
-      airQuality: source.payload.air_quality,
-      latitude: source.payload.latitude,
-      longitude: source.payload.longitude,
-    };
-    points.push(point);
+      temperature: source.fields.temperature,
+      humidity: source.fields.humidity,
+      airQuality: source.fields.air_quality,
+      latitude: source.fields.latitude,
+      longitude: source.fields.longitude,
+    });
   }
 
   return points;
