@@ -4,7 +4,7 @@ const IOT_API_URL = "https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/api
 
 type RawIoTRecord = {
   id: string;
-  payload: { temperature: number; humidity: number; air_quality: number; latitude: number; longitude: number };
+  payload: { temperature: number; heart_rate: number; air_quality: number; latitude: number; longitude: number; humidity?: number };
 };
 
 function normalizeRecord(r: RawIoTRecord): IoTReading {
@@ -12,6 +12,7 @@ function normalizeRecord(r: RawIoTRecord): IoTReading {
     id: r.id,
     temperature: r.payload.temperature,
     air_quality: r.payload.air_quality,
+    heart_rate: r.payload.heart_rate,
     humidity: r.payload.humidity,
     latitude: r.payload.latitude,
     longitude: r.payload.longitude,
@@ -23,7 +24,7 @@ async function fetchAllIoTReadings(): Promise<IoTReading[]> {
   if (!res.ok) throw new Error(`IoT fetch failed (${res.status})`);
   const raw = (await res.json()) as RawIoTRecord[];
   return raw
-    .filter((r) => r?.payload?.temperature != null)
+    .filter((r) => r?.payload?.temperature > 0 && r?.payload?.heart_rate > 0)
     .sort((a, b) => Number(a.id) - Number(b.id))
     .map(normalizeRecord);
 }
@@ -43,23 +44,19 @@ const defaultThresholds: Thresholds = {
 };
 
 // Accumulated in-memory history so charts build up over the session
-const iotHistory: Array<{ ts: number; temperature: number; air_quality: number; humidity: number }> = [];
-
-function estimateHeartRate(temp: number, humidity: number): number {
-  return Math.round(Math.max(55, Math.min(145, 72 + (temp - 30) * 3.2 + (humidity - 65) * 0.7)));
-}
+const iotHistory: Array<{ ts: number; temperature: number; air_quality: number; heart_rate: number }> = [];
 
 function buildBootstrapFromIoT(reading: IoTReading, allReadings?: IoTReading[]): BootstrapResponse {
-  const { temperature, air_quality, humidity, id } = reading;
+  const { temperature, air_quality, heart_rate, id } = reading;
 
   // Use live API history if available, otherwise fall back to in-memory accumulator
   if (allReadings && allReadings.length > 0) {
     iotHistory.length = 0;
     for (const r of allReadings.slice(-60)) {
-      iotHistory.push({ ts: Number(r.id), temperature: r.temperature, air_quality: r.air_quality, humidity: r.humidity });
+      iotHistory.push({ ts: Number(r.id), temperature: r.temperature, air_quality: r.air_quality, heart_rate: r.heart_rate });
     }
   } else {
-    iotHistory.push({ ts: Date.now(), temperature, air_quality, humidity });
+    iotHistory.push({ ts: Date.now(), temperature, air_quality, heart_rate });
     if (iotHistory.length > 60) iotHistory.splice(0, iotHistory.length - 60);
   }
 
@@ -70,7 +67,7 @@ function buildBootstrapFromIoT(reading: IoTReading, allReadings?: IoTReading[]):
     status = "warning";
   }
 
-  const heartRate = estimateHeartRate(temperature, humidity);
+  const heartRate = Math.round(heart_rate);
 
   const worker = {
     id: "SENSOR-001",
@@ -102,7 +99,7 @@ function buildBootstrapFromIoT(reading: IoTReading, allReadings?: IoTReading[]):
 
   const timeSeries = iotHistory.map((p) => ({
     time: new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-    heartRate: estimateHeartRate(p.temperature, p.humidity),
+    heartRate: Math.round(p.heart_rate),
     temperature: Number(p.temperature.toFixed(1)),
     airQuality: Number(p.air_quality.toFixed(0)),
   }));

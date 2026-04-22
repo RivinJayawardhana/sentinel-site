@@ -48,7 +48,8 @@ export interface IoTReading {
   id: string;
   temperature: number;
   air_quality: number;
-  humidity: number;
+  heart_rate: number;
+  humidity?: number;
   latitude: number;
   longitude: number;
 }

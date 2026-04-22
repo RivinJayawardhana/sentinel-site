@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useMonitoringData, useIoTData } from "@/hooks/useMonitoringData";
 import { useEffect, useRef, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Search, Heart, Thermometer, Wind, Radio, Droplets, MapPin } from "lucide-react";
+import { Search, Heart, Thermometer, Wind, Radio, MapPin } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   normal: "bg-success text-success-foreground",
@@ -26,7 +26,7 @@ const LiveMonitoring = () => {
   const [search, setSearch] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  const iotHistory = useRef<Array<{ time: string; temperature: number; air_quality: number; humidity: number }>>([]);
+  const iotHistory = useRef<Array<{ time: string; temperature: number; air_quality: number; heart_rate: number }>>([]);
   const [iotChart, setIotChart] = useState(iotHistory.current);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ const LiveMonitoring = () => {
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
       temperature: iot.temperature,
       air_quality: iot.air_quality,
-      humidity: iot.humidity,
+      heart_rate: iot.heart_rate,
     };
     iotHistory.current = [...iotHistory.current.slice(-(MAX_HISTORY - 1)), point];
     setIotChart([...iotHistory.current]);
@@ -104,10 +104,10 @@ const LiveMonitoring = () => {
 
           <Card>
             <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg bg-primary/10 p-2.5"><Droplets className="h-5 w-5 text-primary" /></div>
+              <div className="rounded-lg bg-critical/10 p-2.5"><Heart className="h-5 w-5 text-critical" /></div>
               <div>
-                <p className="text-2xl font-bold">{iot.humidity.toFixed(1)}<span className="text-xs font-normal text-muted-foreground ml-1">%</span></p>
-                <p className="text-xs text-muted-foreground">Humidity</p>
+                <p className="text-2xl font-bold">{iot.heart_rate.toFixed(0)}<span className="text-xs font-normal text-muted-foreground ml-1">BPM</span></p>
+                <p className="text-xs text-muted-foreground">Heart Rate</p>
               </div>
             </CardContent>
           </Card>
@@ -146,7 +146,7 @@ const LiveMonitoring = () => {
                 <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }} />
                 <Line type="monotone" dataKey="temperature" stroke="hsl(45, 96%, 56%)" strokeWidth={2} dot={false} name="Temp °C" />
                 <Line type="monotone" dataKey="air_quality" stroke="hsl(122, 47%, 33%)" strokeWidth={2} dot={false} name="AQI" />
-                <Line type="monotone" dataKey="humidity" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={false} name="Humidity %" />
+                <Line type="monotone" dataKey="heart_rate" stroke="hsl(0, 76%, 47%)" strokeWidth={2} dot={false} name="Heart Rate BPM" />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
