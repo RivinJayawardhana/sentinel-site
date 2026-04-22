@@ -206,7 +206,10 @@ const LiveMonitoring = () => {
                 <Heart className="h-6 w-6 text-critical" />
               </div>
               <div>
-                <p className="text-3xl font-bold">{selected.heartRate} <span className="text-sm font-normal text-muted-foreground">BPM</span></p>
+                <p className="text-3xl font-bold">
+                  {iot ? Math.round(iot.heart_rate) : selected.heartRate}
+                  <span className="text-sm font-normal text-muted-foreground ml-1">BPM</span>
+                </p>
                 <p className="text-xs text-muted-foreground">Heart Rate</p>
               </div>
             </CardContent>
@@ -218,7 +221,10 @@ const LiveMonitoring = () => {
                 <Thermometer className="h-6 w-6 text-warning" />
               </div>
               <div>
-                <p className="text-3xl font-bold">{selected.temperature} <span className="text-sm font-normal text-muted-foreground">°C</span></p>
+                <p className="text-3xl font-bold">
+                  {iot ? iot.temperature.toFixed(1) : selected.temperature}
+                  <span className="text-sm font-normal text-muted-foreground ml-1">°C</span>
+                </p>
                 <p className="text-xs text-muted-foreground">Body Temperature</p>
               </div>
             </CardContent>
@@ -230,7 +236,10 @@ const LiveMonitoring = () => {
                 <Wind className="h-6 w-6 text-success" />
               </div>
               <div>
-                <p className="text-3xl font-bold">{selected.airQuality} <span className="text-sm font-normal text-muted-foreground">AQI</span></p>
+                <p className="text-3xl font-bold">
+                  {iot ? iot.air_quality.toFixed(0) : selected.airQuality}
+                  <span className="text-sm font-normal text-muted-foreground ml-1">AQI</span>
+                </p>
                 <p className="text-xs text-muted-foreground">Air Quality Index</p>
               </div>
             </CardContent>
