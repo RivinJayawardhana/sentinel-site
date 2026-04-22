@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchBootstrap, fetchIoTData, ingestTelemetry, updateSettings, updateEmployeeDevice } from "@/lib/api";
+import { fetchBootstrap, fetchIoTData, fetchAllIoTReadings, ingestTelemetry, updateSettings, updateEmployeeDevice } from "@/lib/api";
 import type { Thresholds } from "@/types/monitoring";
 
 export const DEFAULT_EMPLOYEE_ID = import.meta.env.VITE_EMPLOYEE_ID ?? "EMP001";
@@ -10,6 +10,15 @@ export function useIoTData() {
     queryFn: fetchIoTData,
     refetchInterval: 5000,
     staleTime: 4000,
+  });
+}
+
+export function useAllIoTData() {
+  return useQuery({
+    queryKey: ["iot-all"],
+    queryFn: fetchAllIoTReadings,
+    refetchInterval: 30000,
+    staleTime: 25000,
   });
 }
 

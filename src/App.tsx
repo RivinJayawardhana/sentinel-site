@@ -11,6 +11,7 @@ import WorkerDetails from "./pages/WorkerDetails";
 import LocationZones from "./pages/LocationZones";
 import AlertsCenter from "./pages/AlertsCenter";
 import Analytics from "./pages/Analytics";
+import AIInsights from "./pages/AIInsights";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "@/context/AuthContext";
@@ -38,6 +39,7 @@ const App = () => {
               <Route path="/zones" element={<ProtectedRoute><LocationZones /></ProtectedRoute>} />
               <Route path="/alerts" element={<ProtectedRoute><AlertsCenter /></ProtectedRoute>} />
               <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+              <Route path="/ai-insights" element={<ProtectedRoute><AIInsights /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>

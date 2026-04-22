@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(curl -s \"https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data\")",
-      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); valid=[r for r in data if r.get\\('payload',{}\\).get\\('temperature',0\\)>0 and r.get\\('payload',{}\\).get\\('heart_rate',0\\)>0]; valid.sort\\(key=lambda r: int\\(r['id']\\)\\); [print\\(f\\\\\"id:{r['id']} hr:{r['payload']['heart_rate']}\\\\\"\\) for r in valid[-5:]]\")"
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); valid=[r for r in data if r.get\\('payload',{}\\).get\\('temperature',0\\)>0 and r.get\\('payload',{}\\).get\\('heart_rate',0\\)>0]; valid.sort\\(key=lambda r: int\\(r['id']\\)\\); [print\\(f\\\\\"id:{r['id']} hr:{r['payload']['heart_rate']}\\\\\"\\) for r in valid[-5:]]\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

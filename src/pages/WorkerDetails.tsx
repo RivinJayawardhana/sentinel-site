@@ -2,9 +2,10 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useMonitoringData } from "@/hooks/useMonitoringData";
+import { useMonitoringData, useIoTData, useAllIoTData } from "@/hooks/useMonitoringData";
 import { useParams, useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useMemo } from "react";
 import { Heart, Thermometer, Wind, MapPin, ArrowLeft, CheckCircle, MessageSquare, AlertTriangle } from "lucide-react";
 import { DeviceChangeDialog } from "@/components/DeviceChangeDialog";
 
@@ -16,13 +17,27 @@ const statusColors: Record<string, string> = {
 
 const WorkerDetails = () => {
   const { data, isLoading, error } = useMonitoringData();
+  const { data: iot } = useIoTData();
+  const { data: allReadings } = useAllIoTData();
   const { id } = useParams();
   const navigate = useNavigate();
   const workers = data?.workers ?? [];
   const alerts = data?.alerts ?? [];
   const worker = workers.find((w) => w.id === id);
   const workerAlerts = alerts.filter((a) => a.workerId === id);
-  const timeSeries = data?.timeSeries ?? [];
+
+  // Build time series from all historical IoT readings (live data)
+  const timeSeries = useMemo(() => {
+    if (allReadings && allReadings.length > 0) {
+      return allReadings.map((r) => ({
+        time: new Date(Number(r.id)).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        heartRate: Math.round(r.heart_rate),
+        temperature: Number(r.temperature.toFixed(1)),
+        airQuality: Number(r.air_quality.toFixed(0)),
+      }));
+    }
+    return data?.timeSeries ?? [];
+  }, [allReadings, data?.timeSeries]);
 
   if (isLoading) {
     return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading worker details...</div></AppLayout>;
@@ -36,11 +51,20 @@ const WorkerDetails = () => {
     return <AppLayout><div className="flex items-center justify-center h-64"><p className="text-muted-foreground">Worker not found</p></div></AppLayout>;
   }
 
+  const rawHR   = iot ? iot.heart_rate   : worker.heartRate;
+  const liveTmp = iot ? iot.temperature.toFixed(1) : worker.temperature;
+  const liveAQ  = iot ? iot.air_quality.toFixed(0) : worker.airQuality;
+  const liveHR  = rawHR > 0 ? `${Math.round(rawHR)} BPM` : "N/A";
+
+  const liveGps = iot && (iot.latitude !== 0 || iot.longitude !== 0)
+    ? `${iot.latitude.toFixed(5)}, ${iot.longitude.toFixed(5)}`
+    : worker.zone;
+
   const metrics = [
-    { label: "Heart Rate", value: `${worker.heartRate} BPM`, icon: Heart, color: "text-critical", bg: "bg-critical/10" },
-    { label: "Temperature", value: `${worker.temperature}°C`, icon: Thermometer, color: "text-warning", bg: "bg-warning/10" },
-    { label: "Air Quality", value: `${worker.airQuality} AQI`, icon: Wind, color: "text-success", bg: "bg-success/10" },
-    { label: "Location", value: worker.zone, icon: MapPin, color: "text-primary", bg: "bg-primary/10" },
+    { label: "Heart Rate",   value: liveHR,       icon: Heart,       color: "text-critical", bg: "bg-critical/10" },
+    { label: "Temperature",  value: `${liveTmp}°C`, icon: Thermometer, color: "text-warning",  bg: "bg-warning/10"  },
+    { label: "Air Quality",  value: `${liveAQ} AQI`, icon: Wind,       color: "text-success",  bg: "bg-success/10"  },
+    { label: "Location",     value: liveGps,       icon: MapPin,      color: "text-primary",  bg: "bg-primary/10"  },
   ];
 
   return (

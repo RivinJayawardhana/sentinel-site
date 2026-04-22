@@ -106,7 +106,10 @@ const LiveMonitoring = () => {
             <CardContent className="flex items-center gap-3 p-4">
               <div className="rounded-lg bg-critical/10 p-2.5"><Heart className="h-5 w-5 text-critical" /></div>
               <div>
-                <p className="text-2xl font-bold">{iot.heart_rate.toFixed(0)}<span className="text-xs font-normal text-muted-foreground ml-1">BPM</span></p>
+                <p className="text-2xl font-bold">
+                  {iot.heart_rate > 0 ? iot.heart_rate.toFixed(0) : <span className="text-muted-foreground text-lg">N/A</span>}
+                  {iot.heart_rate > 0 && <span className="text-xs font-normal text-muted-foreground ml-1">BPM</span>}
+                </p>
                 <p className="text-xs text-muted-foreground">Heart Rate</p>
               </div>
             </CardContent>
@@ -207,8 +210,14 @@ const LiveMonitoring = () => {
               </div>
               <div>
                 <p className="text-3xl font-bold">
-                  {iot ? Math.round(iot.heart_rate) : selected.heartRate}
-                  <span className="text-sm font-normal text-muted-foreground ml-1">BPM</span>
+                  {iot && iot.heart_rate > 0
+                    ? Math.round(iot.heart_rate)
+                    : selected.heartRate > 0
+                      ? selected.heartRate
+                      : <span className="text-muted-foreground text-xl">N/A</span>}
+                  {((iot?.heart_rate ?? selected.heartRate) > 0) && (
+                    <span className="text-sm font-normal text-muted-foreground ml-1">BPM</span>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">Heart Rate</p>
               </div>

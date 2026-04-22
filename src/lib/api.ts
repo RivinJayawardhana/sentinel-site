@@ -4,8 +4,25 @@ const IOT_API_URL = "https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/api
 
 type RawIoTRecord = {
   id: string;
-  payload: { temperature: number; heart_rate: number; air_quality: number; latitude: number; longitude: number; humidity?: number };
+  payload: {
+    temperature: number;
+    heart_rate: number;
+    air_quality: number;
+    latitude: number;
+    longitude: number;
+    humidity?: number;
+    Sensor_ID?: string;
+  };
 };
+
+function hasUsableData(r: RawIoTRecord): boolean {
+  const p = r?.payload;
+  if (!p) return false;
+  // Keep record if it has valid GPS OR valid sensor readings
+  const hasGps    = p.latitude !== 0 || p.longitude !== 0;
+  const hasVitals = p.temperature > 0 || p.air_quality > 0 || p.heart_rate > 0;
+  return hasGps || hasVitals;
+}
 
 function normalizeRecord(r: RawIoTRecord): IoTReading {
   return {
@@ -19,12 +36,12 @@ function normalizeRecord(r: RawIoTRecord): IoTReading {
   };
 }
 
-async function fetchAllIoTReadings(): Promise<IoTReading[]> {
+export async function fetchAllIoTReadings(): Promise<IoTReading[]> {
   const res = await fetch(IOT_API_URL);
   if (!res.ok) throw new Error(`IoT fetch failed (${res.status})`);
   const raw = (await res.json()) as RawIoTRecord[];
   return raw
-    .filter((r) => r?.payload?.temperature > 0 && r?.payload?.heart_rate > 0)
+    .filter(hasUsableData)
     .sort((a, b) => Number(a.id) - Number(b.id))
     .map(normalizeRecord);
 }
@@ -32,7 +49,9 @@ async function fetchAllIoTReadings(): Promise<IoTReading[]> {
 export async function fetchIoTData(): Promise<IoTReading> {
   const all = await fetchAllIoTReadings();
   if (!all.length) throw new Error("No IoT readings available");
-  return all[all.length - 1]; // latest reading
+  // Prefer the latest record that has a real GPS fix
+  const withGps = all.filter((r) => r.latitude !== 0 || r.longitude !== 0);
+  return withGps.length > 0 ? withGps[withGps.length - 1] : all[all.length - 1];
 }
 
 // ─── Fallback bootstrap builder (no backend required) ────────────────────────
@@ -50,12 +69,13 @@ function buildBootstrapFromIoT(reading: IoTReading, allReadings?: IoTReading[]):
   const { temperature, air_quality, heart_rate, id } = reading;
 
   // Use live API history if available, otherwise fall back to in-memory accumulator
+  // Only push records that have valid vitals into history (GPS-only records excluded from charts)
   if (allReadings && allReadings.length > 0) {
     iotHistory.length = 0;
-    for (const r of allReadings.slice(-60)) {
+    for (const r of allReadings.filter(x => x.temperature > 0 || x.heart_rate > 0).slice(-60)) {
       iotHistory.push({ ts: Number(r.id), temperature: r.temperature, air_quality: r.air_quality, heart_rate: r.heart_rate });
     }
-  } else {
+  } else if (temperature > 0 || heart_rate > 0) {
     iotHistory.push({ ts: Date.now(), temperature, air_quality, heart_rate });
     if (iotHistory.length > 60) iotHistory.splice(0, iotHistory.length - 60);
   }
