@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { upsertEmployeeAssignment } from "@/lib/api";
 
 interface CreateWorkerDialogProps {
   onCreated?: () => void;
@@ -32,20 +33,14 @@ export function CreateWorkerDialog({ onCreated }: CreateWorkerDialogProps) {
     setLoading(true);
     try {
       const id = generateId();
-      const res = await fetch("/api/employee", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          name,
-          email,
-          role,
-          deviceId: deviceId || `DEV-${id}`,
-          shift,
-          zone,
-        }),
+      await upsertEmployeeAssignment({
+        id,
+        name,
+        role,
+        deviceId: deviceId || `DEV-${id}`,
+        shift: shift as "Morning" | "Afternoon" | "Night",
+        zone,
       });
-      if (!res.ok) throw new Error("Failed to create worker");
       toast({ title: "Worker created", description: `${name} added successfully.` });
       queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"] });
       setOpen(false);

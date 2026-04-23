@@ -41,6 +41,20 @@ const zonePositions: Record<string, { x: number; y: number; w: number; h: number
   "Zone E": { x: 490, y: 80,  w: 160, h: 200 },
 };
 
+function getZonePosition(name: string, index: number) {
+  const known = zonePositions[name];
+  if (known) return known;
+  const cols = 3;
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  return {
+    x: 30 + col * 220,
+    y: 30 + row * 120,
+    w: 180,
+    h: 90,
+  };
+}
+
 const WORKER_NAME = "Live Sensor";
 
 function AddZoneDialog({ onAdd, createdBy }: {
@@ -201,8 +215,8 @@ const LocationZones = () => {
                 ))}
 
                 {/* Zones */}
-                {zones.map((zone) => {
-                  const pos    = zonePositions[zone.name];
+                {zones.map((zone, idx) => {
+                  const pos    = getZonePosition(zone.name, idx);
                   const colors = zoneTypeColors[zone.type];
                   return (
                     <g key={zone.name}>

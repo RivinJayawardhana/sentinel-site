@@ -2,39 +2,34 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAllIoTData } from "@/hooks/useMonitoringData";
-import { useMemo, useState } from "react";
+import { useIoTDataLogger } from "@/hooks/useIoTDataLogger";
+import { usePretrainedModels, useIsolationForestModel, classifyWithKMeans } from "@/hooks/usePretrainedModels";
+import { useMemo } from "react";
 import {
   LineChart, Line, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ReferenceLine, Legend,
+  Legend, ReferenceLine,
 } from "recharts";
 import {
-  Brain, TrendingUp, AlertCircle, GitBranch,
-  ArrowUp, ArrowDown, Minus, Cpu,
+  Brain, TrendingUp, AlertCircle, GitBranch, Cpu,
+  ArrowUp, ArrowDown, Minus, Database, CheckCircle, Server,
 } from "lucide-react";
-import {
-  trainLinearRegression,
-  trainAnomalyDetector,
-  trainKMeans,
-  pearsonCorrelation,
-} from "@/lib/ml";
+import { pearsonCorrelation } from "@/lib/ml";
 
-const CLUSTER_COLORS = [
-  "hsl(122, 47%, 38%)",
-  "hsl(45, 96%, 45%)",
-  "hsl(0, 76%, 47%)",
-];
-
+// ─── Types ─────────────────────────────────────────────────────────────────────
 const SENSOR_KEYS = ["heart_rate", "temperature", "air_quality"] as const;
 type SensorKey = (typeof SENSOR_KEYS)[number];
 
 const SENSOR_META: Record<SensorKey, { label: string; unit: string; color: string }> = {
-  heart_rate:  { label: "Heart Rate",   unit: "BPM", color: "hsl(0, 76%, 47%)" },
-  temperature: { label: "Temperature",  unit: "°C",  color: "hsl(45, 96%, 56%)" },
-  air_quality: { label: "Air Quality",  unit: "AQI", color: "hsl(210, 80%, 55%)" },
+  heart_rate:  { label: "Heart Rate",  unit: "BPM", color: "hsl(0, 76%, 47%)"   },
+  temperature: { label: "Temperature", unit: "°C",  color: "hsl(45, 96%, 56%)"  },
+  air_quality: { label: "Air Quality", unit: "AQI", color: "hsl(210, 80%, 55%)" },
 };
 
+const CLUSTER_COLORS = ["hsl(122,47%,38%)", "hsl(45,96%,45%)", "hsl(0,76%,47%)"];
+const FORECAST_STEPS = 5;
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 function corrLabel(r: number) {
   const a = Math.abs(r);
   if (a >= 0.7) return r > 0 ? "Strong +" : "Strong −";
@@ -43,251 +38,277 @@ function corrLabel(r: number) {
   return "Negligible";
 }
 
-function corrBg(r: number): string {
-  const a = Math.abs(r);
-  if (r === 1) return "bg-gray-100 text-gray-500";
-  if (r >= 0.7) return "bg-green-600 text-white";
-  if (r >= 0.4) return "bg-green-300 text-green-900";
-  if (r >= 0.1) return "bg-green-100 text-green-800";
+function corrBg(r: number) {
+  if (r === 1)   return "bg-gray-100 text-gray-500";
+  if (r >= 0.7)  return "bg-green-600 text-white";
+  if (r >= 0.4)  return "bg-green-300 text-green-900";
+  if (r >= 0.1)  return "bg-green-100 text-green-800";
   if (r >= -0.1) return "bg-gray-100 text-gray-600";
   if (r >= -0.4) return "bg-orange-100 text-orange-800";
   if (r >= -0.7) return "bg-red-300 text-red-900";
   return "bg-red-600 text-white";
 }
 
-const FORECAST_STEPS = 5;
+function fmtDate(d: Date | null) {
+  return d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+}
 
+// ─── Component ─────────────────────────────────────────────────────────────────
 const AIInsights = () => {
-  const { data: readings, isLoading, error } = useAllIoTData();
-  const [trendMetric, setTrendMetric] = useState<SensorKey>("heart_rate");
-  const [anomalyMetric, setAnomalyMetric] = useState<SensorKey>("heart_rate");
+  const { allData, stats } = useIoTDataLogger();
+  const { data: models, isLoading: modelsLoading } = usePretrainedModels();
+  const isoModel = useIsolationForestModel(models);
 
-  const ml = useMemo(() => {
-    if (!readings || readings.length < 3) return null;
+  // Live readings with valid vitals
+  const liveReadings = useMemo(
+    () => allData.filter(r => r.temperature > 0 || r.heart_rate > 0),
+    [allData]
+  );
 
-    // Only use records that have valid vitals for ML — GPS-only records (heart_rate=0, temp=0) would skew models
-    const vitalReadings = readings.filter(r => r.temperature > 0 || r.heart_rate > 0);
-    if (vitalReadings.length < 3) return null;
-
-    const hrVals  = vitalReadings.map(r => r.heart_rate);
-    const tmpVals = vitalReadings.map(r => r.temperature);
-    const aqVals  = vitalReadings.map(r => r.air_quality);
-    const times   = vitalReadings.map((r, i) => {
-      const ts = Number(r.id);
-      return isNaN(ts) ? `T${i}` : new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-    });
-
-    // 1. Regression models — trained on historical time series
-    const regression = {
-      heart_rate:  trainLinearRegression(hrVals),
-      temperature: trainLinearRegression(tmpVals),
-      air_quality: trainLinearRegression(aqVals),
-    };
-
-    // 2. Anomaly detectors — Z-score trained on each sensor distribution
-    const anomaly = {
-      heart_rate:  trainAnomalyDetector(hrVals,  2.0),
-      temperature: trainAnomalyDetector(tmpVals, 2.0),
-      air_quality: trainAnomalyDetector(aqVals,  2.0),
-    };
-
-    // 3. Correlation matrix — Pearson r learned from feature pairs
-    const corrMatrix = {
-      hr_tmp: pearsonCorrelation(hrVals, tmpVals),
-      hr_aq:  pearsonCorrelation(hrVals, aqVals),
-      tmp_aq: pearsonCorrelation(tmpVals, aqVals),
-    };
-
-    // 4. K-means clustering (k=3) on [heart_rate, temperature] feature space
-    const kmeans = trainKMeans(vitalReadings.map(r => [r.heart_rate, r.temperature]), 3);
-
-    // Pre-build chart datasets
-    const buildTrendChart = (key: SensorKey) => {
-      const vals = key === "heart_rate" ? hrVals : key === "temperature" ? tmpVals : aqVals;
-      const model = regression[key];
-      const n = vals.length;
-      return [
+  // ── 1. Trend Forecasting — apply pre-trained regression to live data ──
+  const trendData = useMemo(() => {
+    if (!models || liveReadings.length === 0) return null;
+    return (Object.keys(SENSOR_META) as SensorKey[]).reduce((acc, key) => {
+      const reg  = models.regression[key];
+      const vals = liveReadings.map(r => r[key]);
+      const n    = vals.length;
+      const chart = [
         ...vals.map((v, i) => ({
-          label: times[i],
-          actual: Number(v.toFixed(2)),
-          trend: Number(model.predict(i).toFixed(2)),
+          label: new Date(Number(liveReadings[i].id)).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+          actual:   Number(v.toFixed(2)),
+          trend:    Number((reg.slope * i + reg.intercept).toFixed(2)),
           forecast: null as number | null,
         })),
         ...Array.from({ length: FORECAST_STEPS }, (_, j) => ({
-          label: `+${j + 1}`,
-          actual: null as number | null,
-          trend: null as number | null,
-          forecast: Number(model.predict(n + j).toFixed(2)),
+          label:    `+${j + 1}`,
+          actual:   null as number | null,
+          trend:    null as number | null,
+          forecast: Number((reg.slope * (n + j) + reg.intercept).toFixed(2)),
         })),
       ];
-    };
+      acc[key] = chart;
+      return acc;
+    }, {} as Record<string, Array<{ label: string; actual: number | null; trend: number | null; forecast: number | null }>>);
+  }, [models, liveReadings]);
 
-    const buildAnomalyChart = (key: SensorKey) => {
-      const vals = key === "heart_rate" ? hrVals : key === "temperature" ? tmpVals : aqVals;
-      const model = anomaly[key];
-      return vals.map((v, i) => ({
-        label: times[i],
-        value: Number(v.toFixed(2)),
-        anomaly: model.isAnomaly[i] ? Number(v.toFixed(2)) : null,
-        upper: Number(model.dynamicHigh.toFixed(2)),
-        lower: Number(model.dynamicLow.toFixed(2)),
-      }));
+  // ── 2. Anomaly Detection — score live readings with pre-trained IF ──
+  const anomalyData = useMemo(() => {
+    if (!models || !isoModel || liveReadings.length === 0) return null;
+    const featureVectors = liveReadings.map(r => [r.heart_rate, r.temperature, r.air_quality]);
+    const { scores, isAnomaly } = isoModel.predict(featureVectors);
+    const alerts = liveReadings
+      .map((r, i) => ({ r, score: scores[i], isAnomaly: isAnomaly[i] }))
+      .filter(d => d.isAnomaly);
+    return {
+      scores,
+      isAnomaly,
+      anomalyCount: isAnomaly.filter(Boolean).length,
+      chartData: liveReadings.map((r, i) => ({
+        label: new Date(Number(r.id)).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        heart_rate:  Number(r.heart_rate.toFixed(1)),
+        temperature: Number(r.temperature.toFixed(1)),
+        air_quality: Number(r.air_quality.toFixed(0)),
+        score:       Number(scores[i].toFixed(3)),
+        anomalyHR:   isAnomaly[i] ? Number(r.heart_rate.toFixed(1))  : null,
+        anomalyT:    isAnomaly[i] ? Number(r.temperature.toFixed(1)) : null,
+        anomalyAQ:   isAnomaly[i] ? Number(r.air_quality.toFixed(0)) : null,
+        threshold:   Number(isoModel.threshold.toFixed(3)),
+      })),
+      alerts,
     };
+  }, [models, isoModel, liveReadings]);
 
-    const scatterPoints = vitalReadings.map((r, i) => ({
+  // ── 3. Correlations — pre-trained values from CSV (10K samples) ──
+  const corrRows: { label: string; key: SensorKey }[] = [
+    { label: "Heart Rate",   key: "heart_rate"  },
+    { label: "Temperature",  key: "temperature" },
+    { label: "Air Quality",  key: "air_quality" },
+  ];
+  const corrVal = (a: SensorKey, b: SensorKey): number => {
+    if (!models) return 0;
+    if (a === b) return 1;
+    const m = models.correlations.matrix;
+    return m[a]?.[b] ?? 0;
+  };
+
+  // Live correlation (for comparison)
+  const liveCorrData = useMemo(() => {
+    if (liveReadings.length < 3) return null;
+    const hrs  = liveReadings.map(r => r.heart_rate);
+    const tmps = liveReadings.map(r => r.temperature);
+    const aqs  = liveReadings.map(r => r.air_quality);
+    return {
+      hr_temp: pearsonCorrelation(hrs, tmps),
+      hr_aq:   pearsonCorrelation(hrs, aqs),
+      temp_aq: pearsonCorrelation(tmps, aqs),
+    };
+  }, [liveReadings]);
+
+  // ── 4. K-Means — classify live readings using pre-trained centroids ──
+  const clusterData = useMemo(() => {
+    if (!models || liveReadings.length === 0) return null;
+    const featureData = liveReadings.map(r => [r.heart_rate, r.temperature, r.air_quality]);
+    const assignments = featureData.map(p => classifyWithKMeans(p, models.kmeans, featureData));
+    const scatterPoints = liveReadings.map((r, i) => ({
       x: Number(r.heart_rate.toFixed(1)),
       y: Number(r.temperature.toFixed(2)),
-      cluster: kmeans.assignments[i],
+      cluster: assignments[i],
     }));
+    const clusterSizes = [0, 1, 2].map(k => assignments.filter(a => a === k).length);
+    const dominant = models.kmeans.clusterLabels[clusterSizes.indexOf(Math.max(...clusterSizes))];
+    return { scatterPoints, clusterSizes, dominant, assignments };
+  }, [models, liveReadings]);
 
-    const totalAnomalies =
-      anomaly.heart_rate.anomalyCount +
-      anomaly.temperature.anomalyCount +
-      anomaly.air_quality.anomalyCount;
-
-    const bestR2 = Math.max(regression.heart_rate.r2, regression.temperature.r2, regression.air_quality.r2);
-    const dominantCluster = kmeans.clusterLabels[
-      kmeans.clusterSizes.indexOf(Math.max(...kmeans.clusterSizes))
-    ];
-
-    return {
-      regression, anomaly, corrMatrix, kmeans,
-      buildTrendChart, buildAnomalyChart,
-      scatterPoints, totalAnomalies, bestR2, dominantCluster,
-      n: vitalReadings.length, times,
-    };
-  }, [readings]);
-
-  if (isLoading) {
+  // ─── Loading / error states ─────────────────────────────────────────────────
+  if (modelsLoading) {
     return (
       <AppLayout>
-        <div className="flex items-center gap-3 p-6 text-muted-foreground text-sm">
-          <Cpu className="h-4 w-4 animate-pulse" /> Training ML models on live sensor data…
+        <div className="rounded-lg border bg-card p-8 text-center space-y-3">
+          <Cpu className="h-8 w-8 text-muted-foreground mx-auto animate-pulse" />
+          <p className="font-medium">Loading pre-trained models…</p>
         </div>
       </AppLayout>
     );
   }
 
-  if (error || !readings) {
+  if (!models) {
     return (
       <AppLayout>
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">
-          Failed to load IoT data for analysis.
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-8 text-center">
+          <p className="text-sm text-destructive">Could not load trained_models.json. Run <code>node ml-models/train.cjs</code> first.</p>
         </div>
       </AppLayout>
     );
   }
 
-  if (!ml) {
-    return (
-      <AppLayout>
-        <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-          Insufficient data — need at least 3 sensor readings to train models. Collecting data…
-        </div>
-      </AppLayout>
-    );
-  }
-
-  const trendChart   = ml.buildTrendChart(trendMetric);
-  const anomalyChart = ml.buildAnomalyChart(anomalyMetric);
-  const trendModel   = ml.regression[trendMetric];
-  const anomalyModel = ml.anomaly[anomalyMetric];
-  const meta         = SENSOR_META[trendMetric];
-  const aMeta        = SENSOR_META[anomalyMetric];
-
-  const trendDir =
-    trendModel.slope > 0.05 ? "Rising" :
-    trendModel.slope < -0.05 ? "Falling" : "Stable";
-  const TrendIcon = trendModel.slope > 0.05 ? ArrowUp : trendModel.slope < -0.05 ? ArrowDown : Minus;
-  const trendColor = trendModel.slope > 0.05 ? "text-critical" : trendModel.slope < -0.05 ? "text-success" : "text-muted-foreground";
-
-  const corrRows = [
-    { label: "Heart Rate", key: "heart_rate" as SensorKey },
-    { label: "Temperature", key: "temperature" as SensorKey },
-    { label: "Air Quality", key: "air_quality" as SensorKey },
-  ];
-
-  function corrVal(a: SensorKey, b: SensorKey): number {
-    if (a === b) return 1;
-    if ((a === "heart_rate" && b === "temperature") || (a === "temperature" && b === "heart_rate"))
-      return ml.corrMatrix.hr_tmp;
-    if ((a === "heart_rate" && b === "air_quality") || (a === "air_quality" && b === "heart_rate"))
-      return ml.corrMatrix.hr_aq;
-    return ml.corrMatrix.tmp_aq;
-  }
-
-  const clusterByGroup = [0, 1, 2].map(ki =>
-    ml.scatterPoints.filter(p => p.cluster === ki)
-  );
+  const liveCount = liveReadings.length;
+  const hasLive   = liveCount > 0;
 
   return (
     <AppLayout>
-      {/* Page Header */}
-      <div className="mb-6 flex items-start justify-between">
+      {/* Header */}
+      <div className="mb-5 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Brain className="h-6 w-6 text-primary" />
             <h1 className="text-2xl font-bold">AI-Powered Safety Insights</h1>
-            <Badge className="bg-primary/10 text-primary border-primary/20">ML Model</Badge>
+            <Badge className="bg-primary/10 text-primary border-primary/20">Pre-Trained Models</Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            Machine learning models trained on {ml.n} IoT sensor readings — linear regression, Z-score anomaly detection, k-means clustering, and Pearson correlation analysis.
+            Models trained on <strong>{models.datasetInfo.totalRows.toLocaleString()}</strong> samples
+            ({models.datasetInfo.dateRange.start.slice(0, 10)} → {models.datasetInfo.dateRange.end.slice(0, 10)}).
+            {hasLive && ` Scoring ${liveCount} live readings in real-time.`}
           </p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Server className="h-4 w-4" />
+          <span>Trained: {new Date(models.trainedAt).toLocaleDateString()}</span>
         </div>
       </div>
 
+      {/* Data Collection + Model Info */}
+      <div className="grid grid-cols-2 gap-4 mb-5">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Database className="h-4 w-4 text-primary" /> Training Dataset
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {[
+                { label: "Training Samples",    value: models.datasetInfo.totalRows.toLocaleString() },
+                { label: "Sensor",              value: models.datasetInfo.sensor },
+                { label: "Train Start",         value: models.datasetInfo.dateRange.start.slice(0, 10) },
+                { label: "Train End",           value: models.datasetInfo.dateRange.end.slice(0, 10) },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
+                  <p className="text-sm font-bold">{value}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Database className="h-4 w-4 text-success" /> Live Data Collection
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {[
+                { label: "Live Samples",     value: stats.totalSamples },
+                { label: "Vital Readings",   value: stats.vitalSamples },
+                { label: "Collection Start", value: fmtDate(stats.oldestDate) },
+                { label: "Latest Reading",   value: fmtDate(stats.newestDate) },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
+                  <p className="text-sm font-bold">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Progress toward 7-day target</span>
+                <span>{stats.daysCollected.toFixed(1)} / 7 days</span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                <div className="h-full rounded-full bg-success transition-all" style={{ width: `${stats.progressPct}%` }} />
+              </div>
+              {stats.progressPct >= 100 && (
+                <div className="flex items-center gap-1 text-xs text-success mt-1">
+                  <CheckCircle className="h-3 w-3" /> 7-day target met
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-5">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-primary/10 p-2.5">
-              <Cpu className="h-5 w-5 text-primary" />
-            </div>
+            <div className="rounded-lg bg-primary/10 p-2.5"><Cpu className="h-5 w-5 text-primary" /></div>
             <div>
-              <p className="text-2xl font-bold">{ml.n}</p>
+              <p className="text-2xl font-bold">{models.datasetInfo.totalRows.toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Training Samples</p>
             </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-critical/10 p-2.5">
-              <AlertCircle className="h-5 w-5 text-critical" />
-            </div>
+            <div className="rounded-lg bg-critical/10 p-2.5"><AlertCircle className="h-5 w-5 text-critical" /></div>
             <div>
-              <p className="text-2xl font-bold">{ml.totalAnomalies}</p>
-              <p className="text-xs text-muted-foreground">Anomalies Detected</p>
+              <p className="text-2xl font-bold">{anomalyData?.anomalyCount ?? "—"}</p>
+              <p className="text-xs text-muted-foreground">Live Anomalies (Isolation Forest)</p>
             </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-success/10 p-2.5">
-              <TrendingUp className="h-5 w-5 text-success" />
-            </div>
+            <div className="rounded-lg bg-success/10 p-2.5"><TrendingUp className="h-5 w-5 text-success" /></div>
             <div>
-              <p className="text-2xl font-bold">{(ml.bestR2 * 100).toFixed(1)}%</p>
-              <p className="text-xs text-muted-foreground">Best Model R²</p>
+              <p className="text-2xl font-bold">{(models.isolationForest.threshold).toFixed(3)}</p>
+              <p className="text-xs text-muted-foreground">Learned IF Threshold</p>
             </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-warning/10 p-2.5">
-              <GitBranch className="h-5 w-5 text-warning" />
-            </div>
+            <div className="rounded-lg bg-warning/10 p-2.5"><GitBranch className="h-5 w-5 text-warning" /></div>
             <div>
-              <p className="text-lg font-bold leading-tight">{ml.dominantCluster}</p>
-              <p className="text-xs text-muted-foreground">Dominant Pattern</p>
+              <p className="text-lg font-bold leading-tight">{clusterData?.dominant ?? models.kmeans.clusterLabels[1]}</p>
+              <p className="text-xs text-muted-foreground">Dominant Cluster</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* ML Analysis Tabs */}
       <Tabs defaultValue="trend">
         <TabsList className="mb-4">
           <TabsTrigger value="trend">Trend Forecasting</TabsTrigger>
@@ -296,296 +317,315 @@ const AIInsights = () => {
           <TabsTrigger value="patterns">Behavior Patterns</TabsTrigger>
         </TabsList>
 
-        {/* ── TAB 1: Temporal Trend Analysis ── */}
+        {/* ── Trend Forecasting ── */}
         <TabsContent value="trend">
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">Temporal Trend Analysis</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Linear regression model trained on historical readings · predicts next {FORECAST_STEPS} time steps
-                  </p>
-                </div>
-                <div className="flex gap-1.5">
-                  {SENSOR_KEYS.map(k => (
-                    <button
-                      key={k}
-                      onClick={() => setTrendMetric(k)}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                        trendMetric === k
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80"
-                      }`}
-                    >
-                      {SENSOR_META[k].label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-64 mb-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendChart}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: "11px" }} />
-                    <Line type="monotone" dataKey="actual" stroke={meta.color} strokeWidth={2} dot={false} name={`${meta.label} (actual)`} connectNulls={false} />
-                    <Line type="monotone" dataKey="trend" stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Regression trend" connectNulls={false} />
-                    <Line type="monotone" dataKey="forecast" stroke={meta.color} strokeWidth={2} strokeDasharray="3 3" dot={{ r: 4, fill: meta.color }} name={`Forecast (next ${FORECAST_STEPS})`} connectNulls={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+          <div className="space-y-4">
+            {(Object.keys(SENSOR_META) as SensorKey[]).map(key => {
+              const reg   = models.regression[key];
+              const meta  = SENSOR_META[key];
+              const chart = trendData?.[key] ?? [];
+              const slope = reg.slope;
+              const trendDir   = slope > 0.001 ? "Rising" : slope < -0.001 ? "Falling" : "Stable";
+              const TrendIcon  = slope > 0.001 ? ArrowUp : slope < -0.001 ? ArrowDown : Minus;
+              const trendColor = slope > 0.001 ? "text-critical" : slope < -0.001 ? "text-success" : "text-muted-foreground";
+              const thr = models.thresholds[key];
 
-              {/* Model Stats */}
-              <div className="grid grid-cols-4 gap-3">
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Model R²</p>
-                  <p className="text-lg font-bold">{(trendModel.r2 * 100).toFixed(1)}%</p>
-                  <p className="text-xs text-muted-foreground">Fit quality</p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Slope</p>
-                  <p className="text-lg font-bold">{trendModel.slope.toFixed(3)}</p>
-                  <p className="text-xs text-muted-foreground">{meta.unit} / step</p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Trend Direction</p>
-                  <p className={`text-lg font-bold flex items-center gap-1 ${trendColor}`}>
-                    <TrendIcon className="h-4 w-4" /> {trendDir}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">RMSE</p>
-                  <p className="text-lg font-bold">{trendModel.rmse.toFixed(2)}</p>
-                  <p className="text-xs text-muted-foreground">Prediction error</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              return (
+                <Card key={key}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base">{meta.label} — Linear Regression Trend</CardTitle>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Trained on {reg.trainSamples.toLocaleString()} samples · 80/20 chronological split ·
+                          slope={reg.slope.toFixed(6)} · intercept={reg.intercept.toFixed(3)}
+                        </p>
+                      </div>
+                      <Badge className={`text-xs ${trendDir === "Rising" ? "bg-critical/10 text-critical" : trendDir === "Falling" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>
+                        <TrendIcon className="h-3 w-3 mr-1" />{trendDir}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {hasLive && chart.length > 0 ? (
+                      <div className="h-52 mb-4">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={chart}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                            <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                            <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }} />
+                            <Legend wrapperStyle={{ fontSize: "11px" }} />
+                            <ReferenceLine y={thr.upperBound} stroke="hsl(0,76%,47%)" strokeDasharray="4 2" label={{ value: "Upper bound", fontSize: 10 }} />
+                            <ReferenceLine y={thr.lowerBound} stroke="hsl(45,96%,56%)" strokeDasharray="4 2" label={{ value: "Lower bound", fontSize: 10 }} />
+                            <Line type="monotone" dataKey="actual"   stroke={meta.color} strokeWidth={2} dot={false} name={`Live ${meta.label}`} connectNulls={false} />
+                            <Line type="monotone" dataKey="trend"    stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Regression trend" connectNulls={false} />
+                            <Line type="monotone" dataKey="forecast" stroke={meta.color} strokeWidth={2} strokeDasharray="3 3" dot={{ r: 4 }} name={`Forecast (+${FORECAST_STEPS})`} connectNulls={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="h-52 flex items-center justify-center text-sm text-muted-foreground mb-4 border rounded-lg bg-muted/20">
+                        No live data yet — model parameters below are from pre-training
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-4 gap-3">
+                      <div className="rounded-lg bg-muted/40 p-3 border">
+                        <p className="text-xs font-semibold text-muted-foreground mb-2">Train Metrics</p>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between"><span className="text-muted-foreground">R²</span><span className="font-bold">{(reg.trainR2 * 100).toFixed(2)}%</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">RMSE</span><span className="font-bold">{reg.trainRmse.toFixed(3)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Samples</span><span className="font-bold">{reg.trainSamples.toLocaleString()}</span></div>
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-muted/40 p-3 border">
+                        <p className="text-xs font-semibold text-muted-foreground mb-2">Test Metrics (20%)</p>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Test R²</span><span className="font-bold">{(reg.testR2 * 100).toFixed(2)}%</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Test RMSE</span><span className="font-bold">{reg.testRmse.toFixed(3)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Samples</span><span className="font-bold">{reg.testSamples.toLocaleString()}</span></div>
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-muted/40 p-3 border">
+                        <p className="text-xs font-semibold text-muted-foreground mb-2">Model Weights</p>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Slope</span><span className="font-bold font-mono">{reg.slope.toFixed(6)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Intercept</span><span className="font-bold font-mono">{reg.intercept.toFixed(3)}</span></div>
+                          <div className={`flex items-center gap-1 font-bold ${trendColor}`}><TrendIcon className="h-3 w-3" />{trendDir}</div>
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-muted/40 p-3 border">
+                        <p className="text-xs font-semibold text-muted-foreground mb-2">Learned Bounds (IQR)</p>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Lower</span><span className="font-bold">{thr.lowerBound.toFixed(1)} {meta.unit}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Upper</span><span className="font-bold">{thr.upperBound.toFixed(1)} {meta.unit}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Anomaly %</span><span className="font-bold">{(thr.anomalyRate * 100).toFixed(1)}%</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </TabsContent>
 
-        {/* ── TAB 2: Anomaly Detection ── */}
+        {/* ── Anomaly Detection ── */}
         <TabsContent value="anomaly">
           <Card>
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">Z-Score Anomaly Detection</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Statistical model learns normal distribution from data · flags readings beyond {anomalyModel.zThreshold}σ as anomalies
-                  </p>
-                </div>
-                <div className="flex gap-1.5">
-                  {SENSOR_KEYS.map(k => (
-                    <button
-                      key={k}
-                      onClick={() => setAnomalyMetric(k)}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                        anomalyMetric === k
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80"
-                      }`}
-                    >
-                      {SENSOR_META[k].label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <CardTitle className="text-base">Isolation Forest — Anomaly Detection</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Trained on {models.isolationForest.trainSamples.toLocaleString()} samples with {models.isolationForest.fullNTrees ?? models.isolationForest.nTrees} trees ·
+                threshold {models.isolationForest.threshold.toFixed(4)} learned from 95th-percentile of training scores ·
+                compact {models.isolationForest.nTrees}-tree forest exported for real-time scoring
+              </p>
             </CardHeader>
             <CardContent>
-              <div className="h-64 mb-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={anomalyChart}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: "11px" }} />
-                    <ReferenceLine y={anomalyModel.dynamicHigh} stroke="hsl(0, 76%, 47%)" strokeDasharray="5 3" label={{ value: "Dynamic Upper", position: "insideTopRight", fontSize: 10, fill: "hsl(0, 76%, 47%)" }} />
-                    <ReferenceLine y={anomalyModel.dynamicLow} stroke="hsl(45, 96%, 45%)" strokeDasharray="5 3" label={{ value: "Dynamic Lower", position: "insideBottomRight", fontSize: 10, fill: "hsl(45, 96%, 45%)" }} />
-                    <Line type="monotone" dataKey="value" stroke={aMeta.color} strokeWidth={2} dot={false} name={aMeta.label} />
-                    <Line type="monotone" dataKey="anomaly" stroke="hsl(0, 76%, 47%)" strokeWidth={0} dot={{ r: 7, fill: "hsl(0, 76%, 47%)", strokeWidth: 2, stroke: "white" }} name="Anomaly" connectNulls={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+              {/* Score distribution stats */}
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Learned Threshold</p>
+                  <p className="text-xl font-bold">{models.isolationForest.threshold.toFixed(4)}</p>
+                  <p className="text-xs text-muted-foreground">95th pct (training)</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Training Anomaly Rate</p>
+                  <p className="text-xl font-bold">{((models.isolationForest.anomalyRate ?? 0) * 100).toFixed(1)}%</p>
+                  <p className="text-xs text-muted-foreground">of {models.isolationForest.trainSamples.toLocaleString()} samples</p>
+                </div>
+                <div className="rounded-lg bg-critical/10 border border-critical/20 p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Live Anomalies</p>
+                  <p className="text-xl font-bold text-critical">{anomalyData?.anomalyCount ?? 0}</p>
+                  <p className="text-xs text-muted-foreground">of {liveCount} live readings</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Score Mean (train)</p>
+                  <p className="text-xl font-bold">{models.isolationForest.scoreStats?.mean.toFixed(4)}</p>
+                  <p className="text-xs text-muted-foreground">P95: {models.isolationForest.scoreStats?.p95.toFixed(4)}</p>
+                </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-3">
-                <div className="rounded-lg bg-critical/10 p-3 border border-critical/20">
-                  <p className="text-xs text-muted-foreground mb-1">Anomalies Found</p>
-                  <p className="text-lg font-bold text-critical">{anomalyModel.anomalyCount}</p>
-                  <p className="text-xs text-muted-foreground">of {ml.n} readings</p>
+              {hasLive && anomalyData ? (
+                <>
+                  <div className="h-56 mb-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={anomalyData.chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                        <YAxis yAxisId="score" orientation="right" tick={{ fontSize: 10 }} domain={[0, 1]} />
+                        <YAxis yAxisId="sensor" tick={{ fontSize: 10 }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        <ReferenceLine yAxisId="score" y={models.isolationForest.threshold} stroke="hsl(0,76%,47%)" strokeDasharray="4 2" label={{ value: "Anomaly threshold", fontSize: 10 }} />
+                        <Line yAxisId="sensor" type="monotone" dataKey="heart_rate"  stroke="hsl(0,76%,47%)"   strokeWidth={1.5} dot={false} name="Heart Rate" />
+                        <Line yAxisId="sensor" type="monotone" dataKey="temperature" stroke="hsl(45,96%,56%)"  strokeWidth={1.5} dot={false} name="Temperature" />
+                        <Line yAxisId="sensor" type="monotone" dataKey="air_quality" stroke="hsl(210,80%,55%)" strokeWidth={1.5} dot={false} name="AQI" />
+                        <Line yAxisId="score"  type="monotone" dataKey="score" stroke="hsl(280,70%,55%)" strokeWidth={2} dot={false} name="Anomaly Score" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  {anomalyData.alerts.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-critical uppercase tracking-wide">Flagged Anomalous Readings</p>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {anomalyData.alerts.slice(-10).map(({ r, score }, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs rounded bg-critical/10 border border-critical/20 px-3 py-1.5">
+                            <span className="text-muted-foreground">{new Date(Number(r.id)).toLocaleTimeString()}</span>
+                            <span>HR: {r.heart_rate.toFixed(0)} BPM · {r.temperature.toFixed(1)}°C · AQI: {r.air_quality.toFixed(0)}</span>
+                            <span className="font-bold text-critical">score {score.toFixed(3)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="h-48 flex items-center justify-center text-sm text-muted-foreground border rounded-lg bg-muted/20">
+                  No live data yet — pre-trained forest ready to score incoming readings
                 </div>
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Learned Mean</p>
-                  <p className="text-lg font-bold">{anomalyModel.mean.toFixed(2)}</p>
-                  <p className="text-xs text-muted-foreground">{aMeta.unit}</p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Learned Std Dev</p>
-                  <p className="text-lg font-bold">±{anomalyModel.std.toFixed(2)}</p>
-                  <p className="text-xs text-muted-foreground">{aMeta.unit}</p>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Dynamic Threshold</p>
-                  <p className="text-sm font-bold">{anomalyModel.dynamicLow.toFixed(1)} – {anomalyModel.dynamicHigh.toFixed(1)}</p>
-                  <p className="text-xs text-muted-foreground">Learned safe range</p>
-                </div>
-              </div>
+              )}
+
+              <p className="text-xs text-muted-foreground bg-muted/30 rounded p-2 mt-3">
+                Isolation Forest partitions the feature space [HR, Temp, AQI] with random splits across {models.isolationForest.nTrees} trees.
+                Anomalous readings isolate in fewer splits → higher score. Threshold {models.isolationForest.threshold.toFixed(4)} was <strong>learned</strong> from the 95th percentile of {models.isolationForest.trainSamples.toLocaleString()} training scores — not hardcoded.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── TAB 3: Sensor Correlation ── */}
+        {/* ── Sensor Correlation ── */}
         <TabsContent value="correlation">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Sensor Correlation Matrix</CardTitle>
+              <CardTitle className="text-base">Pearson Correlation — Sensor Feature Relationships</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Pearson correlation coefficients reveal learned linear relationships between sensor features
+                Learned from {models.datasetInfo.totalRows.toLocaleString()} samples in training CSV ·
+                {liveReadings.length >= 3 && " live correlation computed from current readings for comparison"}
               </p>
             </CardHeader>
             <CardContent>
               <div className="flex gap-8 items-start">
-                {/* Heatmap */}
-                <div className="flex-1">
-                  <div className="overflow-hidden rounded-lg border">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/50">
-                          <th className="p-3 text-left text-xs font-medium text-muted-foreground" />
-                          {corrRows.map(r => (
-                            <th key={r.key} className="p-3 text-center text-xs font-medium text-muted-foreground">{r.label}</th>
-                          ))}
+                <div className="flex-1 overflow-hidden rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/50">
+                        <th className="p-3 text-left text-xs text-muted-foreground">Sensor</th>
+                        {corrRows.map(r => <th key={r.key} className="p-3 text-center text-xs text-muted-foreground">{r.label}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {corrRows.map(row => (
+                        <tr key={row.key}>
+                          <td className="p-3 text-xs font-medium text-muted-foreground bg-muted/30">{row.label}</td>
+                          {corrRows.map(col => {
+                            const r = corrVal(row.key, col.key);
+                            return (
+                              <td key={col.key} className={`p-3 text-center font-bold text-sm ${corrBg(r)}`}>
+                                <div>{r.toFixed(3)}</div>
+                                <div className="text-[10px] font-normal opacity-80">{corrLabel(r)}</div>
+                              </td>
+                            );
+                          })}
                         </tr>
-                      </thead>
-                      <tbody>
-                        {corrRows.map(row => (
-                          <tr key={row.key}>
-                            <td className="p-3 text-xs font-medium text-muted-foreground bg-muted/30">{row.label}</td>
-                            {corrRows.map(col => {
-                              const r = corrVal(row.key, col.key);
-                              return (
-                                <td key={col.key} className={`p-3 text-center font-bold text-sm rounded-none ${corrBg(r)}`}>
-                                  <div>{r.toFixed(2)}</div>
-                                  <div className="text-[10px] font-normal opacity-80">{corrLabel(r)}</div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Color Scale Legend */}
-                  <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>−1 (Strong negative)</span>
-                    <div className="flex-1 h-3 rounded-full" style={{ background: "linear-gradient(to right, hsl(0,76%,47%), hsl(45,50%,90%), hsl(122,47%,38%))" }} />
-                    <span>+1 (Strong positive)</span>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="p-2 flex items-center gap-2 text-xs text-muted-foreground border-t">
+                    <span>−1</span>
+                    <div className="flex-1 h-2 rounded" style={{ background: "linear-gradient(to right,hsl(0,76%,47%),hsl(45,50%,90%),hsl(122,47%,38%))" }} />
+                    <span>+1</span>
+                    <span className="ml-2 text-[10px]">Trained on {models.datasetInfo.totalRows.toLocaleString()} CSV samples</span>
                   </div>
                 </div>
 
-                {/* Key Insights */}
                 <div className="w-64 space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Key Insights</p>
-
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pre-Trained (CSV)</p>
                   {[
-                    { label: "HR ↔ Temperature", value: ml.corrMatrix.hr_tmp },
-                    { label: "HR ↔ Air Quality", value: ml.corrMatrix.hr_aq },
-                    { label: "Temp ↔ Air Quality", value: ml.corrMatrix.tmp_aq },
-                  ].map(({ label, value }) => (
+                    { label: "HR ↔ Temperature", pretrained: models.correlations.hr_temp, live: liveCorrData?.hr_temp },
+                    { label: "HR ↔ Air Quality",  pretrained: models.correlations.hr_aq,   live: liveCorrData?.hr_aq },
+                    { label: "Temp ↔ Air Quality", pretrained: models.correlations.temp_aq, live: liveCorrData?.temp_aq },
+                  ].map(({ label, pretrained, live }) => (
                     <div key={label} className="rounded-lg bg-muted/50 p-3">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs text-muted-foreground">{label}</span>
-                        <span className="text-sm font-bold">{value.toFixed(2)}</span>
+                      <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                      <div className="flex items-baseline gap-3 mb-1">
+                        <span className="text-base font-bold">{pretrained.toFixed(3)}</span>
+                        {live !== undefined && (
+                          <span className="text-xs text-muted-foreground">live: {live.toFixed(3)}</span>
+                        )}
                       </div>
                       <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.abs(value) * 100}%`,
-                            backgroundColor: value >= 0 ? "hsl(122, 47%, 38%)" : "hsl(0, 76%, 47%)",
-                          }}
-                        />
+                        <div className="h-full rounded-full" style={{ width: `${Math.abs(pretrained) * 100}%`, backgroundColor: pretrained >= 0 ? "hsl(122,47%,38%)" : "hsl(0,76%,47%)" }} />
                       </div>
-                      <p className="text-[10px] text-muted-foreground mt-1">{corrLabel(value)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1">{corrLabel(pretrained)}</p>
                     </div>
                   ))}
-
-                  <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 text-xs text-muted-foreground">
-                    Correlations learned from {ml.n} real IoT samples. Values close to ±1 indicate strong learned feature coupling useful for predictive modelling.
-                  </div>
+                  <p className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+                    All three sensors are <strong>independent</strong> (near-zero correlation), confirming each provides unique safety signal.
+                  </p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── TAB 4: Behavior Patterns (K-means) ── */}
+        {/* ── Behavior Patterns ── */}
         <TabsContent value="patterns">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Behavior Pattern Analysis — K-Means (k=3)</CardTitle>
+              <CardTitle className="text-base">K-Means++ Clustering (k=3) — Behavior Pattern Analysis</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Unsupervised k-means++ model trained on heart rate × temperature feature space · discovers usage patterns without labeled data
+                Trained on {models.kmeans.trainSamples.toLocaleString()} samples ·
+                silhouette score {models.kmeans.silhouette.toFixed(4)} ·
+                features: {models.kmeans.featureNames.join(", ")} ·
+                live readings classified using pre-trained centroids
               </p>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-3 gap-6">
-                {/* Scatter Chart */}
                 <div className="col-span-2 h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ScatterChart>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis
-                        dataKey="x"
-                        name="Heart Rate"
-                        unit=" BPM"
-                        tick={{ fontSize: 10 }}
-                        stroke="hsl(var(--muted-foreground))"
-                        label={{ value: "Heart Rate (BPM)", position: "insideBottom", offset: -5, fontSize: 11 }}
-                      />
-                      <YAxis
-                        dataKey="y"
-                        name="Temperature"
-                        unit="°C"
-                        tick={{ fontSize: 10 }}
-                        stroke="hsl(var(--muted-foreground))"
-                        label={{ value: "Temp (°C)", angle: -90, position: "insideLeft", fontSize: 11 }}
-                      />
-                      <Tooltip
-                        cursor={{ strokeDasharray: "3 3" }}
-                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }}
-                        formatter={(val: number, name: string) => [val, name]}
-                      />
-                      <Legend wrapperStyle={{ fontSize: "11px" }} />
-                      {ml.kmeans.clusterLabels.map((label, ki) => (
-                        <Scatter
-                          key={ki}
-                          name={label}
-                          data={clusterByGroup[ki]}
-                          fill={CLUSTER_COLORS[ki]}
-                          opacity={0.85}
-                        />
-                      ))}
-                    </ScatterChart>
-                  </ResponsiveContainer>
+                  {hasLive && clusterData ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ScatterChart>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="x" name="Heart Rate" unit=" BPM" tick={{ fontSize: 10 }} label={{ value: "Heart Rate (BPM)", position: "insideBottom", offset: -5, fontSize: 11 }} />
+                        <YAxis dataKey="y" name="Temperature" unit="°C" tick={{ fontSize: 10 }} label={{ value: "Temp (°C)", angle: -90, position: "insideLeft", fontSize: 11 }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "11px" }} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        {models.kmeans.clusterLabels.map((label, ki) => (
+                          <Scatter key={ki} name={label}
+                            data={clusterData.scatterPoints.filter(p => p.cluster === ki)}
+                            fill={CLUSTER_COLORS[ki]} opacity={0.85} />
+                        ))}
+                        {/* Plot pre-trained centroids as stars */}
+                        <Scatter name="Centroids (trained)"
+                          data={models.kmeans.centroids.map((c, ki) => ({ x: c[0], y: c[1], cluster: ki }))}
+                          fill="white" stroke="black" strokeWidth={1.5} shape="star" opacity={1} />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-sm text-muted-foreground border rounded-lg bg-muted/20">
+                      No live data — pre-trained centroids ready for classification
+                    </div>
+                  )}
                 </div>
 
-                {/* Cluster Summary */}
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cluster Centroids</p>
-                  {ml.kmeans.clusterLabels.map((label, ki) => {
-                    const c = ml.kmeans.centroids[ki];
-                    const size = ml.kmeans.clusterSizes[ki];
+                  <div className="rounded-lg bg-muted/40 p-3 border">
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">Model Quality</p>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Silhouette</span><span className="font-bold">{models.kmeans.silhouette.toFixed(4)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Train Samples</span><span className="font-bold">{models.kmeans.trainSamples.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Algorithm</span><span className="font-bold">K-Means++</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">k</span><span className="font-bold">3</span></div>
+                    </div>
+                  </div>
+
+                  {models.kmeans.clusterLabels.map((label, ki) => {
+                    const c         = models.kmeans.centroids[ki];
+                    const trainSize = models.kmeans.clusterSizes[ki];
+                    const liveSize  = clusterData?.clusterSizes[ki] ?? 0;
                     return (
                       <div key={ki} className="rounded-lg border p-3">
                         <div className="flex items-center gap-2 mb-2">
@@ -593,29 +633,15 @@ const AIInsights = () => {
                           <span className="text-sm font-semibold">{label}</span>
                         </div>
                         <div className="space-y-1 text-xs text-muted-foreground">
-                          <div className="flex justify-between">
-                            <span>Avg HR</span>
-                            <span className="font-medium text-foreground">{c[0]?.toFixed(1)} BPM</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Avg Temp</span>
-                            <span className="font-medium text-foreground">{c[1]?.toFixed(2)} °C</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Samples</span>
-                            <span className="font-medium text-foreground">{size} / {ml.n}</span>
-                          </div>
-                          <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-2">
-                            <div className="h-full rounded-full" style={{ width: `${(size / ml.n) * 100}%`, backgroundColor: CLUSTER_COLORS[ki] }} />
-                          </div>
+                          <div className="flex justify-between"><span>Centroid HR</span><span className="font-medium text-foreground">{c[0]?.toFixed(1)} BPM</span></div>
+                          <div className="flex justify-between"><span>Centroid Temp</span><span className="font-medium text-foreground">{c[1]?.toFixed(1)} °C</span></div>
+                          <div className="flex justify-between"><span>Centroid AQI</span><span className="font-medium text-foreground">{c[2]?.toFixed(0)}</span></div>
+                          <div className="flex justify-between"><span>Train size</span><span className="font-medium text-foreground">{trainSize.toLocaleString()}</span></div>
+                          {hasLive && <div className="flex justify-between"><span>Live readings</span><span className="font-medium text-foreground">{liveSize}</span></div>}
                         </div>
                       </div>
                     );
                   })}
-
-                  <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-                    K-means++ trained over 150 iterations on normalized features. Cluster labels assigned by ascending heart rate centroid value.
-                  </div>
                 </div>
               </div>
             </CardContent>

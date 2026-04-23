@@ -96,10 +96,11 @@ export function normalizeSourceRecords(payload: unknown, employeeId: string): Te
 
 function makeAlertFromPoint(point: TelemetryPoint, worker: Worker, thresholds: Thresholds): Alert[] {
   const alerts: Alert[] = [];
+  const alertPrefix = `${worker.id}-${point.telemetryId}`;
 
   if (point.airQuality <= thresholds.airQuality.criticalMin) {
     alerts.push({
-      id: `ALT-AQ-CRIT-${point.telemetryId}`,
+      id: `ALT-AQ-CRIT-${alertPrefix}`,
       workerId: worker.id,
       workerName: worker.name,
       type: "air_quality",
@@ -111,7 +112,7 @@ function makeAlertFromPoint(point: TelemetryPoint, worker: Worker, thresholds: T
     });
   } else if (point.airQuality <= thresholds.airQuality.min) {
     alerts.push({
-      id: `ALT-AQ-WARN-${point.telemetryId}`,
+      id: `ALT-AQ-WARN-${alertPrefix}`,
       workerId: worker.id,
       workerName: worker.name,
       type: "air_quality",
@@ -125,7 +126,7 @@ function makeAlertFromPoint(point: TelemetryPoint, worker: Worker, thresholds: T
 
   if (point.temperature >= thresholds.temperature.criticalMax) {
     alerts.push({
-      id: `ALT-TEMP-CRIT-${point.telemetryId}`,
+      id: `ALT-TEMP-CRIT-${alertPrefix}`,
       workerId: worker.id,
       workerName: worker.name,
       type: "temperature",
@@ -137,7 +138,7 @@ function makeAlertFromPoint(point: TelemetryPoint, worker: Worker, thresholds: T
     });
   } else if (point.temperature >= thresholds.temperature.max) {
     alerts.push({
-      id: `ALT-TEMP-WARN-${point.telemetryId}`,
+      id: `ALT-TEMP-WARN-${alertPrefix}`,
       workerId: worker.id,
       workerName: worker.name,
       type: "temperature",
@@ -155,6 +156,8 @@ function makeAlertFromPoint(point: TelemetryPoint, worker: Worker, thresholds: T
 function buildTimeSeries(history: TelemetryPoint[]): TimeSeriesPoint[] {
   const sorted = [...history].sort((a, b) => a.ts - b.ts).slice(-30);
   return sorted.map((p) => ({
+    timestamp: new Date(p.ts).toISOString(),
+    date: new Date(p.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     time: new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
     heartRate: estimateHeartRate(p.temperature, p.humidity),
     temperature: Number(p.temperature.toFixed(1)),

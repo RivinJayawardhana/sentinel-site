@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useMonitoringData } from "@/hooks/useMonitoringData";
 import { CreateWorkerDialog } from "@/components/CreateWorkerDialog";
+
 import { DeviceChangeDialog } from "@/components/DeviceChangeDialog";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
@@ -69,7 +70,10 @@ const Workers = () => {
             <h1 className="text-2xl font-bold">Workers</h1>
             <p className="text-sm text-muted-foreground">{workers.length} registered workers</p>
           </div>
-          <CreateWorkerDialog />
+          <div className="flex gap-2">
+            
+            <CreateWorkerDialog />
+          </div>
         </div>
 
         {/* KPI strip */}

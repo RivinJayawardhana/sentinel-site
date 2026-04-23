@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchBootstrap, fetchIoTData, fetchAllIoTReadings, ingestTelemetry, updateSettings, updateEmployeeDevice } from "@/lib/api";
-import type { Thresholds } from "@/types/monitoring";
+import { fetchBootstrap, fetchIoTData, fetchAllIoTReadings, fetchSettings, ingestTelemetry, updateSettings, updateEmployeeDevice, updateAlertStatus, fetchNotificationSettings, updateNotificationSettings, fetchZones, createOrUpdateZone, deleteZone } from "@/lib/api";
+import type { NotificationSettings, Thresholds, ZoneDefinition } from "@/types/monitoring";
 
 export const DEFAULT_EMPLOYEE_ID = import.meta.env.VITE_EMPLOYEE_ID ?? "EMP001";
 
@@ -48,7 +48,35 @@ export function useUpdateThresholds(employeeId = DEFAULT_EMPLOYEE_ID) {
   return useMutation({
     mutationFn: (thresholds: Thresholds) => updateSettings(employeeId, thresholds),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["threshold-settings", employeeId] });
       queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", employeeId] });
+    },
+  });
+}
+
+export function useThresholdSettings(employeeId = DEFAULT_EMPLOYEE_ID) {
+  return useQuery({
+    queryKey: ["threshold-settings", employeeId],
+    queryFn: () => fetchSettings(employeeId),
+    staleTime: 10000,
+  });
+}
+
+export function useNotificationSettings(employeeId = DEFAULT_EMPLOYEE_ID) {
+  return useQuery({
+    queryKey: ["notification-settings", employeeId],
+    queryFn: () => fetchNotificationSettings(employeeId),
+    staleTime: 10000,
+  });
+}
+
+export function useUpdateNotifications(employeeId = DEFAULT_EMPLOYEE_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (notifications: NotificationSettings) => updateNotificationSettings(employeeId, notifications),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notification-settings", employeeId] });
     },
   });
 }
@@ -60,6 +88,48 @@ export function useUpdateDevice(employeeId = DEFAULT_EMPLOYEE_ID) {
     mutationFn: (deviceId: string) => updateEmployeeDevice(employeeId, deviceId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", employeeId] });
+    },
+  });
+}
+
+export function useUpdateAlertStatus(employeeId = DEFAULT_EMPLOYEE_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ alertId, status }: { alertId: string; status: "active" | "acknowledged" | "resolved" }) =>
+      updateAlertStatus(alertId, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", employeeId] });
+    },
+  });
+}
+
+export function useZoneDefinitions() {
+  return useQuery({
+    queryKey: ["zone-definitions"],
+    queryFn: fetchZones,
+    staleTime: 10000,
+  });
+}
+
+export function useUpsertZone() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (zone: ZoneDefinition) => createOrUpdateZone(zone),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["zone-definitions"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", DEFAULT_EMPLOYEE_ID] });
+    },
+  });
+}
+
+export function useDeleteZone() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (zoneName: string) => deleteZone(zoneName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["zone-definitions"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", DEFAULT_EMPLOYEE_ID] });
     },
   });
 }

@@ -7,13 +7,30 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { db } from "./dynamo";
 import { config } from "./config";
-import type { Employee, TelemetryPoint, Thresholds } from "./types";
+import type { Employee, NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "./types";
 
 const defaultThresholds: Thresholds = {
   heartRate: { min: 60, max: 100, criticalMax: 120 },
   temperature: { min: 35.5, max: 37.5, criticalMax: 38.0 },
   airQuality: { min: 70, criticalMin: 50 },
 };
+
+const defaultNotifications: NotificationSettings = {
+  email: true,
+  sms: false,
+  push: true,
+  criticalOnly: false,
+};
+
+const GLOBAL_ZONES_KEY = "__global_zones__";
+
+const defaultZoneDefinitions: ZoneDefinition[] = [
+  { name: "Zone A", type: "safe", description: "Main Assembly Area" },
+  { name: "Zone B", type: "safe", description: "Electrical Bay" },
+  { name: "Zone C", type: "restricted", description: "Heavy Machinery" },
+  { name: "Zone D", type: "safe", description: "Pipe Works" },
+  { name: "Zone E", type: "emergency", description: "Chemical Storage" },
+];
 
 const defaultEmployee = (id: string): Employee => ({
   id,
@@ -107,12 +124,7 @@ export async function getOrCreateThresholds(employeeId: string): Promise<Thresho
       Item: {
         employeeId,
         thresholds: defaultThresholds,
-        notifications: {
-          email: true,
-          sms: false,
-          push: true,
-          criticalOnly: false,
-        },
+        notifications: defaultNotifications,
       },
     })
   );
@@ -132,6 +144,106 @@ export async function updateThresholds(employeeId: string, thresholds: Threshold
   );
 
   return thresholds;
+}
+
+export async function getOrCreateNotifications(employeeId: string): Promise<NotificationSettings> {
+  const existing = await db.send(
+    new GetCommand({
+      TableName: config.settingsTable,
+      Key: { employeeId },
+    })
+  );
+
+  if (existing.Item?.notifications) {
+    return existing.Item.notifications as NotificationSettings;
+  }
+
+  await db.send(
+    new PutCommand({
+      TableName: config.settingsTable,
+      Item: {
+        employeeId,
+        thresholds: existing.Item?.thresholds ?? defaultThresholds,
+        notifications: defaultNotifications,
+      },
+    })
+  );
+
+  return defaultNotifications;
+}
+
+export async function updateNotifications(employeeId: string, notifications: NotificationSettings) {
+  await db.send(
+    new UpdateCommand({
+      TableName: config.settingsTable,
+      Key: { employeeId },
+      UpdateExpression: "SET #notifications = :notifications",
+      ExpressionAttributeNames: { "#notifications": "notifications" },
+      ExpressionAttributeValues: { ":notifications": notifications },
+    })
+  );
+
+  return notifications;
+}
+
+export async function getOrCreateZoneDefinitions(): Promise<ZoneDefinition[]> {
+  const existing = await db.send(
+    new GetCommand({
+      TableName: config.settingsTable,
+      Key: { employeeId: GLOBAL_ZONES_KEY },
+    })
+  );
+
+  if (Array.isArray(existing.Item?.zones) && existing.Item.zones.length > 0) {
+    return existing.Item.zones as ZoneDefinition[];
+  }
+
+  await db.send(
+    new PutCommand({
+      TableName: config.settingsTable,
+      Item: {
+        employeeId: GLOBAL_ZONES_KEY,
+        zones: defaultZoneDefinitions,
+      },
+    })
+  );
+
+  return defaultZoneDefinitions;
+}
+
+export async function upsertZoneDefinition(input: ZoneDefinition): Promise<ZoneDefinition[]> {
+  const zones = await getOrCreateZoneDefinitions();
+  const next = zones.filter((z) => z.name !== input.name);
+  next.push(input);
+
+  await db.send(
+    new PutCommand({
+      TableName: config.settingsTable,
+      Item: {
+        employeeId: GLOBAL_ZONES_KEY,
+        zones: next,
+      },
+    })
+  );
+
+  return next;
+}
+
+export async function deleteZoneDefinition(zoneName: string): Promise<ZoneDefinition[]> {
+  const zones = await getOrCreateZoneDefinitions();
+  const next = zones.filter((z) => z.name !== zoneName);
+
+  await db.send(
+    new PutCommand({
+      TableName: config.settingsTable,
+      Item: {
+        employeeId: GLOBAL_ZONES_KEY,
+        zones: next,
+      },
+    })
+  );
+
+  return next;
 }
 
 export async function upsertTelemetry(point: TelemetryPoint) {

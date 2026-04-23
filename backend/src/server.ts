@@ -4,12 +4,17 @@ import { z } from "zod";
 import { config } from "./config";
 import {
   getOrCreateEmployee,
+  getOrCreateNotifications,
   getOrCreateThresholds,
+  getOrCreateZoneDefinitions,
   listTelemetry,
   pingTables,
+  deleteZoneDefinition,
   updateEmployeeAssignment,
   updateEmployeeDevice,
+  updateNotifications,
   updateThresholds,
+  upsertZoneDefinition,
   upsertTelemetry,
 } from "./repository";
 import { buildBootstrapResponse, normalizeSourceRecords } from "./monitoring";
@@ -24,7 +29,7 @@ const assignmentSchema = z.object({
   name: z.string().min(1),
   role: z.string().min(1),
   shift: z.enum(["Morning", "Afternoon", "Night"]),
-  zone: z.enum(["Zone A", "Zone B", "Zone C", "Zone D", "Zone E"]),
+  zone: z.string().min(1),
   deviceId: z.string().min(1),
 });
 
@@ -33,6 +38,32 @@ const thresholdsSchema = z.object({
   temperature: z.object({ min: z.number(), max: z.number(), criticalMax: z.number() }),
   airQuality: z.object({ min: z.number(), criticalMin: z.number() }),
 });
+
+const notificationsSchema = z.object({
+  email: z.boolean(),
+  sms: z.boolean(),
+  push: z.boolean(),
+  criticalOnly: z.boolean(),
+});
+
+const zoneSchema = z.object({
+  name: z.string().min(1),
+  type: z.enum(["safe", "restricted", "emergency"]),
+  description: z.string().min(1),
+});
+
+const alertStatusSchema = z.object({
+  status: z.enum(["active", "acknowledged", "resolved"]),
+});
+
+const alertStatusOverrides = new Map<string, "active" | "acknowledged" | "resolved">();
+
+function applyAlertStatuses<T extends { id: string; status: "active" | "acknowledged" | "resolved" }>(alerts: T[]): T[] {
+  return alerts.map((alert) => ({
+    ...alert,
+    status: alertStatusOverrides.get(alert.id) ?? alert.status,
+  }));
+}
 
 app.get("/health", async (_req, res) => {
   try {
@@ -100,7 +131,18 @@ app.get("/api/employee/:id/alerts", async (req, res) => {
   const thresholds = await getOrCreateThresholds(employeeId);
   const history = await listTelemetry(employeeId, 120);
   const bootstrap = buildBootstrapResponse({ employee, thresholds, history });
-  res.json(bootstrap.alerts);
+  res.json(applyAlertStatuses(bootstrap.alerts));
+});
+
+app.put("/api/alerts/:id/status", async (req, res) => {
+  const alertId = req.params.id;
+  const parsed = alertStatusSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid alert status", errors: parsed.error.issues });
+  }
+
+  alertStatusOverrides.set(alertId, parsed.data.status);
+  res.json({ id: alertId, status: parsed.data.status });
 });
 
 app.get("/api/settings", async (req, res) => {
@@ -118,6 +160,23 @@ app.put("/api/settings", async (req, res) => {
 
   const updated = await updateThresholds(employeeId, parsed.data);
   res.json({ employeeId, thresholds: updated });
+});
+
+app.get("/api/notifications", async (req, res) => {
+  const employeeId = String(req.query.employeeId ?? config.defaultEmployeeId);
+  const notifications = await getOrCreateNotifications(employeeId);
+  res.json({ employeeId, notifications });
+});
+
+app.put("/api/notifications", async (req, res) => {
+  const employeeId = String(req.query.employeeId ?? config.defaultEmployeeId);
+  const parsed = notificationsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid notification settings", errors: parsed.error.issues });
+  }
+
+  const updated = await updateNotifications(employeeId, parsed.data);
+  res.json({ employeeId, notifications: updated });
 });
 
 app.put("/api/employee/:employeeId/device", async (req, res) => {
@@ -143,23 +202,73 @@ app.put("/api/employee/:employeeId/device", async (req, res) => {
   }
 });
 
+app.get("/api/zones", async (_req, res) => {
+  const zones = await getOrCreateZoneDefinitions();
+  res.json({ zones });
+});
+
+app.post("/api/zones", async (req, res) => {
+  const parsed = zoneSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid zone payload", errors: parsed.error.issues });
+  }
+
+  const zones = await upsertZoneDefinition(parsed.data);
+  res.json({ zones });
+});
+
+app.delete("/api/zones/:name", async (req, res) => {
+  const zoneName = String(req.params.name ?? "").trim();
+  if (!zoneName) {
+    return res.status(400).json({ message: "Zone name is required" });
+  }
+
+  const zones = await deleteZoneDefinition(zoneName);
+  res.json({ zones });
+});
+
 app.get("/api/bootstrap", async (req, res) => {
   try {
+    const requestedEmployeeId = String(req.query.employeeId ?? config.defaultEmployeeId);
     const shouldSync = String(req.query.sync ?? "true") === "true";
-    const allEmployees = await listAllEmployees();
+    let allEmployees = await listAllEmployees();
+    if (allEmployees.length === 0) {
+      const employee = await getOrCreateEmployee(requestedEmployeeId);
+      allEmployees = [employee];
+    }
+
+    const zoneDefinitions = await getOrCreateZoneDefinitions();
+    const zoneCatalog = new Map(zoneDefinitions.map((z) => [z.name, { type: z.type, description: z.description }]));
+
+    const zoneWorkerCounts = new Map<string, number>();
+    for (const employee of allEmployees) {
+      zoneWorkerCounts.set(employee.zone, (zoneWorkerCounts.get(employee.zone) ?? 0) + 1);
+    }
+
+    const dynamicZones = zoneDefinitions.map((z) => ({
+      name: z.name,
+      type: z.type,
+      workers: zoneWorkerCounts.get(z.name) ?? 0,
+      description: z.description,
+    }));
+
+    for (const [name, workers] of zoneWorkerCounts.entries()) {
+      if (!zoneCatalog.has(name)) {
+        dynamicZones.push({
+          name,
+          type: "restricted",
+          workers,
+          description: "Custom Zone",
+        });
+      }
+    }
+
     const workers = [];
     let allAlerts = [];
-    let allZones = [
-      { name: "Zone A", type: "safe", workers: 0, description: "Main Assembly Area" },
-      { name: "Zone B", type: "safe", workers: 0, description: "Electrical Bay" },
-      { name: "Zone C", type: "restricted", workers: 0, description: "Heavy Machinery" },
-      { name: "Zone D", type: "safe", workers: 0, description: "Pipe Works" },
-      { name: "Zone E", type: "emergency", workers: 0, description: "Chemical Storage" },
-    ];
     let allTimeSeries = [];
     let allDailyAlertData = [];
     let allRiskDistribution = [];
-    let thresholds = null;
+    const thresholds = await getOrCreateThresholds(requestedEmployeeId);
 
     for (const employee of allEmployees) {
       if (shouldSync) {
@@ -182,18 +291,14 @@ app.get("/api/bootstrap", async (req, res) => {
       workers.push(response.workers[0]);
       allAlerts = allAlerts.concat(response.alerts);
       allTimeSeries = allTimeSeries.concat(response.timeSeries);
-      allZones.forEach(z => {
-        if (z.name === employee.zone) z.workers += 1;
-      });
       allDailyAlertData = allDailyAlertData.concat(response.dailyAlertData);
       allRiskDistribution = allRiskDistribution.concat(response.riskDistribution);
-      if (!thresholds) thresholds = t;
     }
 
     res.json({
       workers,
-      alerts: allAlerts,
-      zones: allZones,
+      alerts: applyAlertStatuses(allAlerts),
+      zones: dynamicZones,
       dailyAlertData: allDailyAlertData,
       riskDistribution: allRiskDistribution,
       thresholds,

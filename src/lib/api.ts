@@ -1,4 +1,4 @@
-import type { BootstrapResponse, IoTReading, Thresholds } from "@/types/monitoring";
+import type { BootstrapResponse, IoTReading, NotificationSettings, Thresholds, ZoneDefinition } from "@/types/monitoring";
 
 const IOT_API_URL = "https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data";
 
@@ -118,6 +118,8 @@ function buildBootstrapFromIoT(reading: IoTReading, allReadings?: IoTReading[]):
   }
 
   const timeSeries = iotHistory.map((p) => ({
+    timestamp: new Date(p.ts).toISOString(),
+    date: new Date(p.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     time: new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
     heartRate: Math.round(p.heart_rate),
     temperature: Number(p.temperature.toFixed(1)),
@@ -154,6 +156,7 @@ function buildBootstrapFromIoT(reading: IoTReading, allReadings?: IoTReading[]):
 // ─── Backend API ──────────────────────────────────────────────────────────────
 
 const BASE_URL = import.meta.env.VITE_BACKEND_API_URL ?? (typeof window !== "undefined" && window.location.hostname === "localhost" ? "http://localhost:8080" : "http://localhost:4000");
+const ENABLE_BOOTSTRAP_FALLBACK = import.meta.env.VITE_ENABLE_IOT_FALLBACK === "true";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -168,6 +171,9 @@ export async function fetchBootstrap(employeeId: string): Promise<BootstrapRespo
   try {
     return await requestJson<BootstrapResponse>(`/api/bootstrap?employeeId=${encodeURIComponent(employeeId)}&sync=true`);
   } catch {
+    if (!ENABLE_BOOTSTRAP_FALLBACK) {
+      throw new Error("Backend bootstrap request failed. Start backend API or set VITE_ENABLE_IOT_FALLBACK=true for demo mode.");
+    }
     // Backend offline — serve real IoT data directly from the AWS endpoint
     const all = await fetchAllIoTReadings();
     const latest = all[all.length - 1];
@@ -186,6 +192,17 @@ export function updateSettings(employeeId: string, thresholds: Thresholds) {
   });
 }
 
+export function fetchNotificationSettings(employeeId: string) {
+  return requestJson<{ employeeId: string; notifications: NotificationSettings }>(`/api/notifications?employeeId=${encodeURIComponent(employeeId)}`);
+}
+
+export function updateNotificationSettings(employeeId: string, notifications: NotificationSettings) {
+  return requestJson<{ employeeId: string; notifications: NotificationSettings }>(`/api/notifications?employeeId=${encodeURIComponent(employeeId)}`, {
+    method: "PUT",
+    body: JSON.stringify(notifications),
+  });
+}
+
 export function ingestTelemetry(employeeId: string) {
   return requestJson<{ inserted: number; scanned: number; employeeId: string }>(`/api/ingest?employeeId=${encodeURIComponent(employeeId)}`, {
     method: "POST",
@@ -196,5 +213,48 @@ export function updateEmployeeDevice(employeeId: string, deviceId: string) {
   return requestJson<{ message: string; employee: any }>(`/api/employee/${encodeURIComponent(employeeId)}/device`, {
     method: "PUT",
     body: JSON.stringify({ deviceId }),
+  });
+}
+
+export type EmployeeAssignmentPayload = {
+  id: string;
+  name: string;
+  role: string;
+  shift: "Morning" | "Afternoon" | "Night";
+  zone: string;
+  deviceId: string;
+};
+
+export function upsertEmployeeAssignment(payload: EmployeeAssignmentPayload) {
+  return requestJson<EmployeeAssignmentPayload>("/api/employee", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAlertStatus(alertId: string, status: "active" | "acknowledged" | "resolved") {
+  return requestJson<{ id: string; status: "active" | "acknowledged" | "resolved" }>(
+    `/api/alerts/${encodeURIComponent(alertId)}/status`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    }
+  );
+}
+
+export function fetchZones() {
+  return requestJson<{ zones: ZoneDefinition[] }>("/api/zones");
+}
+
+export function createOrUpdateZone(zone: ZoneDefinition) {
+  return requestJson<{ zones: ZoneDefinition[] }>("/api/zones", {
+    method: "POST",
+    body: JSON.stringify(zone),
+  });
+}
+
+export function deleteZone(zoneName: string) {
+  return requestJson<{ zones: ZoneDefinition[] }>(`/api/zones/${encodeURIComponent(zoneName)}`, {
+    method: "DELETE",
   });
 }

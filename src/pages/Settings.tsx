@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useMonitoringData, useUpdateThresholds } from "@/hooks/useMonitoringData";
+import { DEFAULT_EMPLOYEE_ID, useDeleteZone, useMonitoringData, useNotificationSettings, useThresholdSettings, useUpdateNotifications, useUpdateThresholds, useUpsertZone, useZoneDefinitions } from "@/hooks/useMonitoringData";
 import { useEffect, useState } from "react";
 import { Save, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -27,7 +27,13 @@ import {
 const Settings = () => {
   const { toast } = useToast();
   const { data, isLoading, error } = useMonitoringData();
+  const { data: thresholdSettings } = useThresholdSettings(DEFAULT_EMPLOYEE_ID);
+  const { data: notificationData } = useNotificationSettings(DEFAULT_EMPLOYEE_ID);
+  const { data: zoneDefinitionsData } = useZoneDefinitions();
   const saveThresholds = useUpdateThresholds();
+  const saveNotifications = useUpdateNotifications(DEFAULT_EMPLOYEE_ID);
+  const upsertZone = useUpsertZone();
+  const removeZone = useDeleteZone();
 
   const [hrMax, setHrMax] = useState("100");
   const [hrCritical, setHrCritical] = useState("120");
@@ -43,11 +49,13 @@ const Settings = () => {
     criticalOnly: false,
   });
 
-  const thresholds = data?.thresholds;
-  const zones = data?.zones ?? [];
+  const thresholds = thresholdSettings?.thresholds;
+  const zones = zoneDefinitionsData?.zones ?? [];
   const workers = data?.workers ?? [];
-  const [refreshKey, setRefreshKey] = useState(0);
 
+  const [zoneName, setZoneName] = useState("");
+  const [zoneDescription, setZoneDescription] = useState("");
+  const [zoneType, setZoneType] = useState<"safe" | "restricted" | "emergency">("safe");
   useEffect(() => {
     if (!thresholds) {
       return;
@@ -59,6 +67,13 @@ const Settings = () => {
     setAqMin(String(thresholds.airQuality.min));
     setAqCritical(String(thresholds.airQuality.criticalMin));
   }, [thresholds]);
+
+  useEffect(() => {
+    if (!notificationData?.notifications) {
+      return;
+    }
+    setNotifications(notificationData.notifications);
+  }, [notificationData]);
 
   const handleSave = async () => {
     try {
@@ -79,8 +94,50 @@ const Settings = () => {
     { name: "Robert Lee", email: "robert@safeguard.io", role: "Admin" },
   ];
 
-  // Refresh workers after creating a new one
-  const handleWorkerCreated = () => setRefreshKey((k) => k + 1);
+  const handleWorkerCreated = () => {
+    toast({ title: "Worker created", description: "Worker list will refresh automatically." });
+  };
+
+  const handleNotificationToggle = async (key: keyof typeof notifications, value: boolean) => {
+    const next = { ...notifications, [key]: value };
+    setNotifications(next);
+    try {
+      await saveNotifications.mutateAsync(next);
+    } catch {
+      setNotifications(notifications);
+      toast({ title: "Save failed", description: "Could not persist notification settings.", variant: "destructive" });
+    }
+  };
+
+  const handleAddZone = async () => {
+    if (!zoneName.trim() || !zoneDescription.trim()) {
+      toast({ title: "Missing fields", description: "Zone name and description are required.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      await upsertZone.mutateAsync({
+        name: zoneName.trim(),
+        description: zoneDescription.trim(),
+        type: zoneType,
+      });
+      setZoneName("");
+      setZoneDescription("");
+      setZoneType("safe");
+      toast({ title: "Zone saved", description: "Zone has been added/updated." });
+    } catch {
+      toast({ title: "Save failed", description: "Could not save zone.", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteZone = async (name: string) => {
+    try {
+      await removeZone.mutateAsync(name);
+      toast({ title: "Zone deleted", description: `${name} removed successfully.` });
+    } catch {
+      toast({ title: "Delete failed", description: "Could not delete zone.", variant: "destructive" });
+    }
+  };
 
   if (isLoading) {
     return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading settings...</div></AppLayout>;
@@ -146,7 +203,22 @@ const Settings = () => {
               <CardTitle className="text-base">Zone Management</CardTitle>
               <CardDescription>Manage site zones and classifications</CardDescription>
             </div>
-            <Button size="sm" variant="outline" className="gap-1"><Plus className="h-3.5 w-3.5" /> Add Zone</Button>
+            <div className="flex items-center gap-2">
+              <Input placeholder="Zone name" value={zoneName} onChange={(e) => setZoneName(e.target.value)} className="h-9 w-36" />
+              <Input placeholder="Description" value={zoneDescription} onChange={(e) => setZoneDescription(e.target.value)} className="h-9 w-44" />
+              <select
+                className="h-9 rounded-md border bg-background px-2 text-sm"
+                value={zoneType}
+                onChange={(e) => setZoneType(e.target.value as "safe" | "restricted" | "emergency")}
+              >
+                <option value="safe">safe</option>
+                <option value="restricted">restricted</option>
+                <option value="emergency">emergency</option>
+              </select>
+              <Button size="sm" variant="outline" className="gap-1" onClick={handleAddZone} disabled={upsertZone.isPending}>
+                <Plus className="h-3.5 w-3.5" /> Add Zone
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -160,7 +232,9 @@ const Settings = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {zones.map((z) => (
+                {zones.map((z) => {
+                  const workersInZone = workers.filter((w) => w.zone === z.name).length;
+                  return (
                   <TableRow key={z.name}>
                     <TableCell className="font-medium">{z.name}</TableCell>
                     <TableCell>{z.description}</TableCell>
@@ -169,7 +243,7 @@ const Settings = () => {
                         {z.type}
                       </Badge>
                     </TableCell>
-                    <TableCell>{z.workers}</TableCell>
+                    <TableCell>{workersInZone}</TableCell>
                     <TableCell>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -182,13 +256,15 @@ const Settings = () => {
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction className="bg-critical text-critical-foreground hover:bg-critical/90">Delete</AlertDialogAction>
+                            <AlertDialogAction className="bg-critical text-critical-foreground hover:bg-critical/90" onClick={() => { void handleDeleteZone(z.name); }}>
+                              Delete
+                            </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
                     </TableCell>
                   </TableRow>
-                ))}
+                );})}
               </TableBody>
             </Table>
           </CardContent>
@@ -251,7 +327,13 @@ const Settings = () => {
             ].map((item) => (
               <div key={item.key} className="flex items-center justify-between">
                 <Label>{item.label}</Label>
-                <Switch checked={notifications[item.key]} onCheckedChange={(v) => setNotifications({ ...notifications, [item.key]: v })} />
+                <Switch
+                  checked={notifications[item.key]}
+                  disabled={saveNotifications.isPending}
+                  onCheckedChange={(v) => {
+                    void handleNotificationToggle(item.key, v);
+                  }}
+                />
               </div>
             ))}
           </CardContent>

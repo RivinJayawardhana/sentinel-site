@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useMonitoringData } from "@/hooks/useMonitoringData";
+import { DEFAULT_EMPLOYEE_ID, useMonitoringData, useUpdateAlertStatus } from "@/hooks/useMonitoringData";
 import type { Alert } from "@/types/monitoring";
 import { useState } from "react";
-import { CheckCircle, AlertTriangle, ArrowUpCircle } from "lucide-react";
+import { CheckCircle, ArrowUpCircle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const severityColors: Record<string, string> = {
   low: "bg-muted text-muted-foreground",
@@ -24,7 +25,10 @@ const statusColors: Record<string, string> = {
 };
 
 const AlertsCenter = () => {
+  const employeeId = DEFAULT_EMPLOYEE_ID;
   const { data, isLoading, error } = useMonitoringData();
+  const updateAlertStatusMutation = useUpdateAlertStatus(employeeId);
+  const { toast } = useToast();
   const alerts = data?.alerts ?? [];
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -35,6 +39,21 @@ const AlertsCenter = () => {
     if (statusFilter !== "all" && a.status !== statusFilter) return false;
     return true;
   });
+
+  const handleAlertStatusChange = async (status: "active" | "acknowledged" | "resolved") => {
+    if (!selectedAlert) return;
+    try {
+      await updateAlertStatusMutation.mutateAsync({ alertId: selectedAlert.id, status });
+      setSelectedAlert({ ...selectedAlert, status });
+      toast({ title: "Alert updated", description: `Alert marked as ${status}.` });
+    } catch {
+      toast({
+        title: "Update failed",
+        description: "Could not update alert status.",
+        variant: "destructive",
+      });
+    }
+  };
 
   if (isLoading) {
     return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading alerts...</div></AppLayout>;
@@ -143,9 +162,28 @@ const AlertsCenter = () => {
                     <p className="text-sm">{selectedAlert.message}</p>
                   </div>
                   <div className="space-y-2">
-                    <Button className="w-full gap-2" variant="outline"><CheckCircle className="h-4 w-4" /> Acknowledge</Button>
-                    <Button className="w-full gap-2 bg-success text-success-foreground hover:bg-success/90"><CheckCircle className="h-4 w-4" /> Resolve</Button>
-                    <Button className="w-full gap-2 bg-critical text-critical-foreground hover:bg-critical/90"><ArrowUpCircle className="h-4 w-4" /> Escalate</Button>
+                    <Button
+                      className="w-full gap-2"
+                      variant="outline"
+                      disabled={updateAlertStatusMutation.isPending || selectedAlert.status === "acknowledged"}
+                      onClick={() => handleAlertStatusChange("acknowledged")}
+                    >
+                      <CheckCircle className="h-4 w-4" /> Acknowledge
+                    </Button>
+                    <Button
+                      className="w-full gap-2 bg-success text-success-foreground hover:bg-success/90"
+                      disabled={updateAlertStatusMutation.isPending || selectedAlert.status === "resolved"}
+                      onClick={() => handleAlertStatusChange("resolved")}
+                    >
+                      <CheckCircle className="h-4 w-4" /> Resolve
+                    </Button>
+                    <Button
+                      className="w-full gap-2 bg-critical text-critical-foreground hover:bg-critical/90"
+                      disabled={updateAlertStatusMutation.isPending || selectedAlert.status === "active"}
+                      onClick={() => handleAlertStatusChange("active")}
+                    >
+                      <ArrowUpCircle className="h-4 w-4" /> Escalate
+                    </Button>
                   </div>
                 </div>
               </>

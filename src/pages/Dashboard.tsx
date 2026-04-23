@@ -23,6 +23,7 @@ const Dashboard = () => {
   const [shiftFilter, setShiftFilter] = useState("all");
 
   const workers = data?.workers ?? [];
+  const zones = data?.zones ?? [];
   const alerts = data?.alerts ?? [];
 
   const normalCount = workers.filter((w) => w.status === "normal").length;
@@ -107,11 +108,9 @@ const Dashboard = () => {
                 <SelectTrigger className="w-32 h-9 text-xs"><SelectValue placeholder="Zone" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Zones</SelectItem>
-                  <SelectItem value="Zone A">Zone A</SelectItem>
-                  <SelectItem value="Zone B">Zone B</SelectItem>
-                  <SelectItem value="Zone C">Zone C</SelectItem>
-                  <SelectItem value="Zone D">Zone D</SelectItem>
-                  <SelectItem value="Zone E">Zone E</SelectItem>
+                  {zones.map((z) => (
+                    <SelectItem key={z.name} value={z.name}>{z.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Select value={statusFilter} onValueChange={setStatusFilter}>

@@ -2,7 +2,14 @@ export type WorkerStatus = "normal" | "warning" | "critical";
 export type AlertSeverity = "low" | "medium" | "high" | "critical";
 export type AlertStatus = "active" | "acknowledged" | "resolved";
 export type AlertType = "heart_rate" | "temperature" | "air_quality" | "zone_breach" | "device_offline";
-export type Zone = "Zone A" | "Zone B" | "Zone C" | "Zone D" | "Zone E";
+export type Zone = string;
+export type ZoneType = "safe" | "restricted" | "emergency";
+
+export interface ZoneDefinition {
+  name: string;
+  type: ZoneType;
+  description: string;
+}
 
 export interface Worker {
   id: string;
@@ -32,6 +39,8 @@ export interface Alert {
 }
 
 export interface TimeSeriesPoint {
+  timestamp: string;
+  date: string;
   time: string;
   heartRate: number;
   temperature: number;
@@ -42,6 +51,13 @@ export interface Thresholds {
   heartRate: { min: number; max: number; criticalMax: number };
   temperature: { min: number; max: number; criticalMax: number };
   airQuality: { min: number; criticalMin: number };
+}
+
+export interface NotificationSettings {
+  email: boolean;
+  sms: boolean;
+  push: boolean;
+  criticalOnly: boolean;
 }
 
 export interface IoTReading {
@@ -57,7 +73,7 @@ export interface IoTReading {
 export interface BootstrapResponse {
   workers: Worker[];
   alerts: Alert[];
-  zones: Array<{ name: Zone; type: "safe" | "restricted" | "emergency"; workers: number; description: string }>;
+  zones: Array<{ name: Zone; type: ZoneType; workers: number; description: string }>;
   dailyAlertData: Array<{ day: string; alerts: number }>;
   riskDistribution: Array<{ name: string; value: number; fill: string }>;
   thresholds: Thresholds;
