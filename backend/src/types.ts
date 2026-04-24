@@ -40,6 +40,7 @@ export interface TelemetryPoint {
   ingestedAt: string;
   temperature: number;
   humidity: number;
+  heartRate: number;
   airQuality: number;
   latitude: number;
   longitude: number;

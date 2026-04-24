@@ -31,7 +31,7 @@ const WorkerDetails = () => {
     const sorted = [...history].sort((a, b) => a.ts - b.ts).slice(-60);
     return sorted.map((p) => ({
       time: new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      heartRate: 72 + (p.temperature - 30) * 3.2 + (p.humidity - 65) * 0.7,
+      heartRate: p.heartRate ?? 0,
       temperature: p.temperature,
       airQuality: p.airQuality,
     }));
@@ -52,7 +52,7 @@ const WorkerDetails = () => {
   const latest = history && history.length > 0 ? history[0] : undefined;
   const liveTmp = latest ? latest.temperature : worker.temperature;
   const liveAQ = latest ? latest.airQuality : worker.airQuality;
-  const liveHR = latest ? `${72 + (latest.temperature - 30) * 3.2 + (latest.humidity - 65) * 0.7} BPM` : (worker.heartRate > 0 ? `${worker.heartRate} BPM` : "N/A");
+  const liveHR = latest ? `${latest.heartRate ?? 0} BPM` : (worker.heartRate > 0 ? `${worker.heartRate} BPM` : "N/A");
   const liveGps = worker.zone;
 
   const metrics = [

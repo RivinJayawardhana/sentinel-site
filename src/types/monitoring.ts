@@ -76,6 +76,7 @@ export interface TelemetryPoint {
   ts: number;
   temperature: number;
   humidity: number;
+  heartRate: number;
   airQuality: number;
   latitude: number;
   longitude: number;
