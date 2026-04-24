@@ -1,5 +1,6 @@
 import { AppSidebar } from "./AppSidebar";
 import { AppHeader } from "./AppHeader";
+import { AgentChatWidget } from "./AgentChatWidget";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -13,6 +14,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <AppHeader />
         <main className="flex-1 p-6">{children}</main>
       </div>
+      <AgentChatWidget />
     </div>
   );
 }
