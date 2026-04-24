@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useMonitoringData } from "@/hooks/useMonitoringData";
+import { useDeleteEmployee, useMonitoringData } from "@/hooks/useMonitoringData";
 import { CreateWorkerDialog } from "@/components/CreateWorkerDialog";
 
 import { DeviceChangeDialog } from "@/components/DeviceChangeDialog";
@@ -21,6 +21,7 @@ const statusColors: Record<string, string> = {
 const Workers = () => {
   const navigate = useNavigate();
   const { data, isLoading, error } = useMonitoringData();
+  const deleteEmployee = useDeleteEmployee();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -181,6 +182,20 @@ const Workers = () => {
                             currentDeviceId={w.deviceId}
                             employeeName={w.name}
                           />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs"
+                            onClick={() => {
+                              if (deleteEmployee.isPending) return;
+                              const ok = window.confirm(`Delete ${w.name}? This cannot be undone.`);
+                              if (ok) {
+                                deleteEmployee.mutate(w.id);
+                              }
+                            }}
+                          >
+                            Delete
+                          </Button>
                           <Button
                             size="sm"
                             variant="ghost"

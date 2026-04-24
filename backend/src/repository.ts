@@ -1,4 +1,5 @@
 import {
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -104,6 +105,15 @@ export async function updateEmployeeDevice(employeeId: string, deviceId: string)
 
   console.log(`Device reassigned: ${employeeId} from ${oldDeviceId} to ${deviceId}`);
   return employee;
+}
+
+export async function deleteEmployee(employeeId: string): Promise<void> {
+  await db.send(
+    new DeleteCommand({
+      TableName: config.employeeTable,
+      Key: { id: employeeId },
+    })
+  );
 }
 
 export async function getOrCreateThresholds(employeeId: string): Promise<Thresholds> {

@@ -243,6 +243,12 @@ export function updateAlertStatus(alertId: string, status: "active" | "acknowled
   );
 }
 
+export function deleteEmployee(employeeId: string) {
+  return requestJson<{ id: string; deleted: boolean }>(`/api/employee/${encodeURIComponent(employeeId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchZones() {
   return requestJson<{ zones: ZoneDefinition[] }>("/api/zones");
 }

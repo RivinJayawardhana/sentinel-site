@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchBootstrap, fetchIoTData, fetchAllIoTReadings, fetchSettings, ingestTelemetry, updateSettings, updateEmployeeDevice, updateAlertStatus, fetchNotificationSettings, updateNotificationSettings, fetchZones, createOrUpdateZone, deleteZone, fetchEmployeeHistory } from "@/lib/api";
+import { fetchBootstrap, fetchIoTData, fetchAllIoTReadings, fetchSettings, ingestTelemetry, updateSettings, updateEmployeeDevice, updateAlertStatus, fetchNotificationSettings, updateNotificationSettings, fetchZones, createOrUpdateZone, deleteZone, fetchEmployeeHistory, deleteEmployee } from "@/lib/api";
 import type { NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "@/types/monitoring";
 
 export const DEFAULT_EMPLOYEE_ID = import.meta.env.VITE_EMPLOYEE_ID ?? "EMP001";
@@ -139,6 +139,17 @@ export function useDeleteZone() {
     mutationFn: (zoneName: string) => deleteZone(zoneName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["zone-definitions"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", DEFAULT_EMPLOYEE_ID] });
+    },
+  });
+}
+
+export function useDeleteEmployee() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (employeeId: string) => deleteEmployee(employeeId),
+    onSuccess: (_result, employeeId) => {
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", employeeId] });
       queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", DEFAULT_EMPLOYEE_ID] });
     },
   });

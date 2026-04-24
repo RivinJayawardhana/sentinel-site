@@ -16,6 +16,7 @@ import {
   updateThresholds,
   upsertZoneDefinition,
   upsertTelemetry,
+  deleteEmployee,
 } from "./repository";
 import { buildBootstrapResponse, normalizeSourceRecords } from "./monitoring";
 import { listAllEmployees } from "./listAllEmployees";
@@ -119,6 +120,20 @@ app.put("/api/employee", async (req, res) => {
 
   const result = await updateEmployeeAssignment(parsed.data);
   res.json(result);
+});
+
+app.delete("/api/employee/:id", async (req, res) => {
+  try {
+    const employeeId = String(req.params.id ?? "").trim();
+    if (!employeeId) {
+      return res.status(400).json({ message: "Employee id is required" });
+    }
+
+    await deleteEmployee(employeeId);
+    res.json({ id: employeeId, deleted: true });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete employee", error: (error as Error).message });
+  }
 });
 
 app.get("/api/employee/:id/latest", async (req, res) => {
