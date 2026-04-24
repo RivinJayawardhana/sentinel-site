@@ -8,7 +8,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { db } from "./dynamo";
 import { config } from "./config";
-import type { Employee, NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "./types";
+import type { DangerZone, Employee, NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "./types";
 
 const defaultThresholds: Thresholds = {
   heartRate: { min: 60, max: 100, criticalMax: 120 },
@@ -24,6 +24,7 @@ const defaultNotifications: NotificationSettings = {
 };
 
 const GLOBAL_ZONES_KEY = "__global_zones__";
+const GLOBAL_DANGER_ZONES_KEY = "__danger_zones__";
 
 const defaultZoneDefinitions: ZoneDefinition[] = [
   { name: "Zone A", type: "safe", description: "Main Assembly Area" },
@@ -249,6 +250,62 @@ export async function deleteZoneDefinition(zoneName: string): Promise<ZoneDefini
       Item: {
         employeeId: GLOBAL_ZONES_KEY,
         zones: next,
+      },
+    })
+  );
+
+  return next;
+}
+
+export async function getDangerZones(): Promise<DangerZone[]> {
+  const existing = await db.send(
+    new GetCommand({
+      TableName: config.settingsTable,
+      Key: { employeeId: GLOBAL_DANGER_ZONES_KEY },
+    })
+  );
+
+  if (Array.isArray(existing.Item?.dangerZones)) {
+    return existing.Item.dangerZones as DangerZone[];
+  }
+
+  return [];
+}
+
+export async function upsertDangerZone(input: Omit<DangerZone, "id" | "createdAt">): Promise<DangerZone[]> {
+  const zones = await getDangerZones();
+  const next: DangerZone[] = [
+    {
+      ...input,
+      id: `dz_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    },
+    ...zones,
+  ];
+
+  await db.send(
+    new PutCommand({
+      TableName: config.settingsTable,
+      Item: {
+        employeeId: GLOBAL_DANGER_ZONES_KEY,
+        dangerZones: next,
+      },
+    })
+  );
+
+  return next;
+}
+
+export async function deleteDangerZone(id: string): Promise<DangerZone[]> {
+  const zones = await getDangerZones();
+  const next = zones.filter((z) => z.id !== id);
+
+  await db.send(
+    new PutCommand({
+      TableName: config.settingsTable,
+      Item: {
+        employeeId: GLOBAL_DANGER_ZONES_KEY,
+        dangerZones: next,
       },
     })
   );

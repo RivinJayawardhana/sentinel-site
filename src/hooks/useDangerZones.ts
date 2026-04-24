@@ -1,96 +1,59 @@
-import { useState, useCallback } from "react";
-
-export interface DangerZone {
-  id: string;
-  name: string;
-  centerLat: number;
-  centerLng: number;
-  radiusMeters: number;
-  createdAt: string;
-  createdBy: string;
-}
-
-export interface BreachAlert {
-  id: string;
-  zoneId: string;
-  zoneName: string;
-  lat: number;
-  lng: number;
-  distanceMeters: number;
-  timestamp: string;
-  status: "active" | "dismissed";
-}
-
-const ZONES_KEY = "sentinel_danger_zones";
-const ALERTS_KEY = "sentinel_breach_alerts";
-
-function loadJson<T>(key: string, fallback: T): T {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function saveJson(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createDangerZone, deleteDangerZone, fetchDangerZones, updateAlertStatus } from "@/lib/api";
+import type { DangerZone } from "@/types/monitoring";
+import { useMonitoringData } from "@/hooks/useMonitoringData";
 
 export function useDangerZones() {
-  const [zones, setZones] = useState<DangerZone[]>(() => loadJson<DangerZone[]>(ZONES_KEY, []));
-  const [breachAlerts, setBreachAlerts] = useState<BreachAlert[]>(() =>
-    loadJson<BreachAlert[]>(ALERTS_KEY, [])
-  );
+  const queryClient = useQueryClient();
+  const { data } = useMonitoringData();
+  const breachAlerts = (data?.alerts ?? []).filter((a) => a.type === "zone_breach");
 
-  const addZone = useCallback(
-    (draft: Omit<DangerZone, "id" | "createdAt">) => {
-      const zone: DangerZone = {
-        ...draft,
-        id: `dz_${Date.now()}`,
-        createdAt: new Date().toISOString(),
-      };
-      setZones((prev) => {
-        const next = [...prev, zone];
-        saveJson(ZONES_KEY, next);
-        return next;
-      });
+  const zonesQuery = useQuery({
+    queryKey: ["danger-zones"],
+    queryFn: fetchDangerZones,
+    staleTime: 10000,
+  });
+
+  const addZone = useMutation({
+    mutationFn: (draft: Omit<DangerZone, "id" | "createdAt">) => createDangerZone(draft),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["danger-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
     },
-    []
-  );
+  });
 
-  const removeZone = useCallback((id: string) => {
-    setZones((prev) => {
-      const next = prev.filter((z) => z.id !== id);
-      saveJson(ZONES_KEY, next);
-      return next;
-    });
-  }, []);
-
-  const addBreachAlert = useCallback(
-    (alert: Omit<BreachAlert, "id" | "status">) => {
-      const next: BreachAlert = { ...alert, id: `breach_${Date.now()}`, status: "active" };
-      setBreachAlerts((prev) => {
-        const updated = [next, ...prev].slice(0, 100); // keep latest 100
-        saveJson(ALERTS_KEY, updated);
-        return updated;
-      });
+  const removeZone = useMutation({
+    mutationFn: (id: string) => deleteDangerZone(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["danger-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
     },
-    []
-  );
+  });
 
-  const dismissAlert = useCallback((id: string) => {
-    setBreachAlerts((prev) => {
-      const updated = prev.map((a) => (a.id === id ? { ...a, status: "dismissed" as const } : a));
-      saveJson(ALERTS_KEY, updated);
-      return updated;
-    });
-  }, []);
+  const dismissAlert = useMutation({
+    mutationFn: (alertId: string) => updateAlertStatus(alertId, "resolved"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
+    },
+  });
 
-  const clearAllAlerts = useCallback(() => {
-    setBreachAlerts([]);
-    localStorage.removeItem(ALERTS_KEY);
-  }, []);
+  const clearAllAlerts = useMutation({
+    mutationFn: async (alertIds: string[]) => {
+      for (const id of alertIds) {
+        await updateAlertStatus(id, "resolved");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
+    },
+  });
 
-  return { zones, breachAlerts, addZone, removeZone, addBreachAlert, dismissAlert, clearAllAlerts };
+  return {
+    zones: zonesQuery.data?.zones ?? [],
+    breachAlerts,
+    addZone: (draft: Omit<DangerZone, "id" | "createdAt">) => addZone.mutate(draft),
+    removeZone: (id: string) => removeZone.mutate(id),
+    dismissAlert: (id: string) => dismissAlert.mutate(id),
+    clearAllAlerts: () => clearAllAlerts.mutate(breachAlerts.map((a) => a.id)),
+  };
 }

@@ -17,6 +17,9 @@ import {
   upsertZoneDefinition,
   upsertTelemetry,
   deleteEmployee,
+  getDangerZones,
+  upsertDangerZone,
+  deleteDangerZone,
 } from "./repository";
 import { buildBootstrapResponse, normalizeSourceRecords } from "./monitoring";
 import { listAllEmployees } from "./listAllEmployees";
@@ -59,6 +62,14 @@ const zoneSchema = z.object({
   name: z.string().min(1),
   type: z.enum(["safe", "restricted", "emergency"]),
   description: z.string().min(1),
+});
+
+const dangerZoneSchema = z.object({
+  name: z.string().min(1),
+  centerLat: z.number(),
+  centerLng: z.number(),
+  radiusMeters: z.number().positive(),
+  createdBy: z.string().min(1),
 });
 
 const alertStatusSchema = z.object({
@@ -153,8 +164,9 @@ app.get("/api/employee/:id/alerts", async (req, res) => {
   const employeeId = req.params.id;
   const employee = await getOrCreateEmployee(employeeId);
   const thresholds = await getOrCreateThresholds(employeeId);
+  const dangerZones = await getDangerZones();
   const history = await listTelemetry(employeeId, 120);
-  const bootstrap = buildBootstrapResponse({ employee, thresholds, history });
+  const bootstrap = buildBootstrapResponse({ employee, thresholds, history, dangerZones });
   res.json(applyAlertStatuses(bootstrap.alerts));
 });
 
@@ -231,6 +243,31 @@ app.get("/api/zones", async (_req, res) => {
   res.json({ zones });
 });
 
+app.get("/api/danger-zones", async (_req, res) => {
+  const zones = await getDangerZones();
+  res.json({ zones });
+});
+
+app.post("/api/danger-zones", async (req, res) => {
+  const parsed = dangerZoneSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid danger zone payload", errors: parsed.error.issues });
+  }
+
+  const zones = await upsertDangerZone(parsed.data);
+  res.json({ zones });
+});
+
+app.delete("/api/danger-zones/:id", async (req, res) => {
+  const id = String(req.params.id ?? "").trim();
+  if (!id) {
+    return res.status(400).json({ message: "Danger zone id is required" });
+  }
+
+  const zones = await deleteDangerZone(id);
+  res.json({ zones });
+});
+
 app.post("/api/zones", async (req, res) => {
   const parsed = zoneSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -255,6 +292,7 @@ app.get("/api/bootstrap", async (req, res) => {
   try {
     const requestedEmployeeId = String(req.query.employeeId ?? config.defaultEmployeeId);
     const shouldSync = String(req.query.sync ?? "true") === "true";
+    const dangerZones = await getDangerZones();
     let allEmployees = await listAllEmployees();
     if (allEmployees.length === 0) {
       const employee = await getOrCreateEmployee(requestedEmployeeId);
@@ -311,7 +349,7 @@ app.get("/api/bootstrap", async (req, res) => {
       }
       const t = await getOrCreateThresholds(employee.id);
       const history = await listTelemetry(employee.id, 180);
-      const response = buildBootstrapResponse({ employee, thresholds: t, history });
+      const response = buildBootstrapResponse({ employee, thresholds: t, history, dangerZones });
       workers.push(response.workers[0]);
       allAlerts = allAlerts.concat(response.alerts);
       allTimeSeries = allTimeSeries.concat(response.timeSeries);

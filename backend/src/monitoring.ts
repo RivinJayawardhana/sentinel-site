@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   Alert,
   BootstrapResponse,
+  DangerZone,
   Employee,
   TelemetryPoint,
   Thresholds,
@@ -232,6 +233,17 @@ function makeAlertFromPoint(point: TelemetryPoint, worker: Worker, thresholds: T
   return alerts;
 }
 
+const RADIUS_M = 6371000;
+const toRad = (d: number) => (d * Math.PI) / 180;
+const distanceMeters = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 function buildTimeSeries(history: TelemetryPoint[]): TimeSeriesPoint[] {
   const sorted = [...history].sort((a, b) => a.ts - b.ts).slice(-30);
   return sorted.map((p) => ({
@@ -248,8 +260,9 @@ export function buildBootstrapResponse(input: {
   employee: Employee;
   thresholds: Thresholds;
   history: TelemetryPoint[];
+  dangerZones?: DangerZone[];
 }): BootstrapResponse {
-  const { employee, thresholds, history } = input;
+  const { employee, thresholds, history, dangerZones = [] } = input;
 
   const latest = history[0];
   const latestTemp = latest?.temperature ?? 30;
@@ -277,7 +290,31 @@ export function buildBootstrapResponse(input: {
   };
 
   const recent = history.slice(0, 24);
-  const alerts = recent.flatMap((p) => makeAlertFromPoint(p, worker, thresholds)).slice(0, 25);
+  let alerts = recent.flatMap((p) => makeAlertFromPoint(p, worker, thresholds));
+
+  if (dangerZones.length > 0) {
+    for (const point of recent) {
+      if (point.latitude === 0 && point.longitude === 0) continue;
+      for (const zone of dangerZones) {
+        const dist = distanceMeters(point.latitude, point.longitude, zone.centerLat, zone.centerLng);
+        if (dist <= zone.radiusMeters) {
+          alerts.push({
+            id: `ALT-ZONE-${zone.id}-${worker.id}-${point.telemetryId}`,
+            workerId: worker.id,
+            workerName: worker.name,
+            type: "zone_breach",
+            severity: "high",
+            message: `Entered danger zone ${zone.name} (${Math.round(dist)}m from center)`,
+            timestamp: new Date(point.ts).toISOString(),
+            status: "active",
+            zone: worker.zone,
+          });
+        }
+      }
+    }
+  }
+
+  alerts = alerts.slice(0, 25);
 
   if (isOffline) {
     alerts.unshift({

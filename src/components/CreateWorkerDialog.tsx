@@ -42,7 +42,7 @@ export function CreateWorkerDialog({ onCreated }: CreateWorkerDialogProps) {
         zone,
       });
       toast({ title: "Worker created", description: `${name} added successfully.` });
-      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
       setOpen(false);
       setName(""); setEmail(""); setRole("worker"); setDeviceId(""); setShift("Morning"); setZone("Zone A");
       onCreated?.();

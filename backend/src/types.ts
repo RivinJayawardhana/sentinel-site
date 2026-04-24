@@ -4,6 +4,16 @@ export type AlertStatus = "active" | "acknowledged" | "resolved";
 export type AlertType = "heart_rate" | "temperature" | "air_quality" | "zone_breach" | "device_offline";
 export type ZoneType = "safe" | "restricted" | "emergency";
 
+export interface DangerZone {
+  id: string;
+  name: string;
+  centerLat: number;
+  centerLng: number;
+  radiusMeters: number;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface Employee {
   id: string;
   name: string;

@@ -70,6 +70,16 @@ export interface IoTReading {
   longitude: number;
 }
 
+export interface DangerZone {
+  id: string;
+  name: string;
+  centerLat: number;
+  centerLng: number;
+  radiusMeters: number;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface TelemetryPoint {
   employeeId: string;
   telemetryId: string;

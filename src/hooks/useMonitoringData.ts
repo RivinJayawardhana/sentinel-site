@@ -97,7 +97,7 @@ export function useUpdateDevice(employeeId = DEFAULT_EMPLOYEE_ID) {
   return useMutation({
     mutationFn: (deviceId: string) => updateEmployeeDevice(employeeId, deviceId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", employeeId] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
     },
   });
 }
@@ -128,7 +128,7 @@ export function useUpsertZone() {
     mutationFn: (zone: ZoneDefinition) => createOrUpdateZone(zone),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["zone-definitions"] });
-      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", DEFAULT_EMPLOYEE_ID] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
     },
   });
 }
@@ -139,7 +139,7 @@ export function useDeleteZone() {
     mutationFn: (zoneName: string) => deleteZone(zoneName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["zone-definitions"] });
-      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", DEFAULT_EMPLOYEE_ID] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
     },
   });
 }
@@ -149,8 +149,8 @@ export function useDeleteEmployee() {
   return useMutation({
     mutationFn: (employeeId: string) => deleteEmployee(employeeId),
     onSuccess: (_result, employeeId) => {
-      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", employeeId] });
-      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap", DEFAULT_EMPLOYEE_ID] });
+      queryClient.invalidateQueries({ queryKey: ["monitoring-bootstrap"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["employee-history", employeeId], exact: false });
     },
   });
 }

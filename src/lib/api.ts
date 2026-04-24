@@ -1,4 +1,4 @@
-import type { BootstrapResponse, IoTReading, NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "@/types/monitoring";
+import type { BootstrapResponse, DangerZone, IoTReading, NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "@/types/monitoring";
 
 const IOT_API_URL = "https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data";
 
@@ -272,6 +272,23 @@ export function createOrUpdateZone(zone: ZoneDefinition) {
 
 export function deleteZone(zoneName: string) {
   return requestJson<{ zones: ZoneDefinition[] }>(`/api/zones/${encodeURIComponent(zoneName)}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchDangerZones() {
+  return requestJson<{ zones: DangerZone[] }>("/api/danger-zones");
+}
+
+export function createDangerZone(zone: Omit<DangerZone, "id" | "createdAt">) {
+  return requestJson<{ zones: DangerZone[] }>("/api/danger-zones", {
+    method: "POST",
+    body: JSON.stringify(zone),
+  });
+}
+
+export function deleteDangerZone(id: string) {
+  return requestJson<{ zones: DangerZone[] }>(`/api/danger-zones/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

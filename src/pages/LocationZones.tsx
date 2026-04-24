@@ -14,7 +14,7 @@ import {
 import { useMonitoringData, useIoTData } from "@/hooks/useMonitoringData";
 import { useDangerZones } from "@/hooks/useDangerZones";
 import { useAuth } from "@/context/AuthContext";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { haversineDistance, isInsideZone } from "@/lib/geo";
 import {
   Search, AlertTriangle, Plus, Trash2, MapPin,
@@ -33,17 +33,7 @@ const statusDotColors: Record<string, string> = {
   critical: "fill-critical",
 };
 
-const zonePositions: Record<string, { x: number; y: number; w: number; h: number }> = {
-  "Zone A": { x: 30,  y: 50,  w: 200, h: 150 },
-  "Zone B": { x: 260, y: 30,  w: 180, h: 120 },
-  "Zone C": { x: 260, y: 180, w: 200, h: 140 },
-  "Zone D": { x: 30,  y: 230, w: 200, h: 130 },
-  "Zone E": { x: 490, y: 80,  w: 160, h: 200 },
-};
-
-function getZonePosition(name: string, index: number) {
-  const known = zonePositions[name];
-  if (known) return known;
+function getZonePosition(index: number) {
   const cols = 3;
   const col = index % cols;
   const row = Math.floor(index / cols);
@@ -55,7 +45,6 @@ function getZonePosition(name: string, index: number) {
   };
 }
 
-const WORKER_NAME = "Live Sensor";
 
 function AddZoneDialog({ onAdd, createdBy }: {
   onAdd: (zone: { name: string; centerLat: number; centerLng: number; radiusMeters: number; createdBy: string }) => void;
@@ -130,44 +119,13 @@ const LocationZones = () => {
   const { data, isLoading, error } = useMonitoringData();
   const { data: iot } = useIoTData();
   const { user } = useAuth();
-  const { zones: dangerZones, breachAlerts, addZone, removeZone, addBreachAlert, dismissAlert, clearAllAlerts } = useDangerZones();
+  const { zones: dangerZones, breachAlerts, addZone, removeZone, dismissAlert, clearAllAlerts } = useDangerZones();
 
   const workers = data?.workers ?? [];
   const zones   = data?.zones ?? [];
   const [search, setSearch] = useState("");
 
-  // Track which danger zones the device is currently inside (prevent duplicate alerts)
-  const insideRef = useRef<Set<string>>(new Set());
-
   const hasGps = !!iot && (iot.latitude !== 0 || iot.longitude !== 0);
-
-  // Breach detection — runs on every IoT refresh (every 5 s)
-  useEffect(() => {
-    if (!iot || !dangerZones.length) return;
-    const { latitude: lat, longitude: lng } = iot;
-    if (lat === 0 && lng === 0) return; // no GPS fix yet
-
-    dangerZones.forEach((dz) => {
-      const inside = isInsideZone(lat, lng, dz.centerLat, dz.centerLng, dz.radiusMeters);
-      const wasInside = insideRef.current.has(dz.id);
-
-      if (inside && !wasInside) {
-        // Entered zone — fire alert
-        insideRef.current.add(dz.id);
-        addBreachAlert({
-          zoneId: dz.id,
-          zoneName: dz.name,
-          lat,
-          lng,
-          distanceMeters: Math.round(haversineDistance(lat, lng, dz.centerLat, dz.centerLng)),
-          timestamp: new Date().toISOString(),
-        });
-      } else if (!inside && wasInside) {
-        // Left zone — clear tracking so a re-entry fires a new alert
-        insideRef.current.delete(dz.id);
-      }
-    });
-  }, [iot, dangerZones, addBreachAlert]);
 
   const filteredWorkers = search
     ? workers.filter((w) =>
@@ -216,7 +174,7 @@ const LocationZones = () => {
 
                 {/* Zones */}
                 {zones.map((zone, idx) => {
-                  const pos    = getZonePosition(zone.name, idx);
+                  const pos    = getZonePosition(idx);
                   const colors = zoneTypeColors[zone.type];
                   return (
                     <g key={zone.name}>
@@ -407,7 +365,7 @@ const LocationZones = () => {
                         {alert.status === "active" && (
                           <span className="inline-block h-2 w-2 rounded-full bg-critical animate-pulse shrink-0 mt-0.5" />
                         )}
-                        <span className="text-xs font-semibold">{WORKER_NAME} entered {alert.zoneName}</span>
+                          <span className="text-xs font-semibold">{alert.message}</span>
                       </div>
                       <button
                         onClick={() => dismissAlert(alert.id)}
@@ -416,11 +374,7 @@ const LocationZones = () => {
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    <p className="text-xs text-muted-foreground font-mono">
-                      {alert.lat.toFixed(5)}, {alert.lng.toFixed(5)}
-                    </p>
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{alert.distanceMeters} m from centre</span>
                       <span>{new Date(alert.timestamp).toLocaleTimeString()}</span>
                     </div>
                     {alert.status === "active" && (
