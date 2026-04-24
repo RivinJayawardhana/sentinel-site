@@ -15,6 +15,7 @@ const flatRecordSchema = z.object({
   id: z.string(),
   temperature: z.number(),
   humidity: z.number().optional(),
+  heart_rate: z.number().optional(),
   air_quality: z.number(),
   latitude: z.number(),
   longitude: z.number(),
@@ -26,6 +27,7 @@ const nestedRecordSchema = z.object({
   payload: z.object({
     temperature: z.number(),
     humidity: z.number().optional(),
+    heart_rate: z.number().optional(),
     air_quality: z.number(),
     latitude: z.number(),
     longitude: z.number(),
@@ -36,7 +38,14 @@ type FlatRecord = z.infer<typeof flatRecordSchema>;
 type NestedRecord = z.infer<typeof nestedRecordSchema>;
 type SourceRecord = {
   id: string;
-  fields: { temperature: number; humidity?: number; air_quality: number; latitude: number; longitude: number };
+  fields: {
+    temperature: number;
+    humidity?: number;
+    heart_rate?: number;
+    air_quality: number;
+    latitude: number;
+    longitude: number;
+  };
   deviceId?: string;
 };
 
@@ -92,18 +101,15 @@ function deriveStatus(airQuality: number, temperature: number, thresholds: Thres
   return "normal";
 }
 
-function estimateHeartRate(temperature: number, humidity: number): number {
-  const baseline = 72;
-  const tempEffect = (temperature - 30) * 3.2;
-  const humidityEffect = (humidity - 65) * 0.7;
-  return Math.round(clamp(baseline + tempEffect + humidityEffect, 55, 145));
-}
-
 export function normalizeSourceRecords(payload: unknown, employeeId: string, deviceId?: string): TelemetryPoint[] {
   // Accept both a single object and an array
   const rows = Array.isArray(payload) ? payload : [payload];
   const points: TelemetryPoint[] = [];
   const normalizedDeviceId = normalizeDeviceId(deviceId);
+
+  if (deviceId !== undefined && !normalizedDeviceId) {
+    return points;
+  }
 
   for (const row of rows) {
     const source = parseRecord(row);
@@ -119,6 +125,7 @@ export function normalizeSourceRecords(payload: unknown, employeeId: string, dev
       ts,
       temperature: source.fields.temperature,
       humidity: source.fields.humidity ?? 65,
+      heartRate: source.fields.heart_rate ?? 0,
       airQuality: source.fields.air_quality,
       latitude: source.fields.latitude,
       longitude: source.fields.longitude,
@@ -184,6 +191,44 @@ function makeAlertFromPoint(point: TelemetryPoint, worker: Worker, thresholds: T
     });
   }
 
+  if (point.heartRate >= thresholds.heartRate.criticalMax) {
+    alerts.push({
+      id: `ALT-HR-CRIT-${alertPrefix}`,
+      workerId: worker.id,
+      workerName: worker.name,
+      type: "heart_rate",
+      severity: "critical",
+      message: `Heart rate critical (${point.heartRate} BPM)`,
+      timestamp: new Date(point.ts).toISOString(),
+      status: "active",
+      zone: worker.zone,
+    });
+  } else if (point.heartRate >= thresholds.heartRate.max) {
+    alerts.push({
+      id: `ALT-HR-WARN-${alertPrefix}`,
+      workerId: worker.id,
+      workerName: worker.name,
+      type: "heart_rate",
+      severity: "high",
+      message: `Heart rate above warning (${point.heartRate} BPM)`,
+      timestamp: new Date(point.ts).toISOString(),
+      status: "active",
+      zone: worker.zone,
+    });
+  } else if (point.heartRate > 0 && point.heartRate <= thresholds.heartRate.min) {
+    alerts.push({
+      id: `ALT-HR-LOW-${alertPrefix}`,
+      workerId: worker.id,
+      workerName: worker.name,
+      type: "heart_rate",
+      severity: "medium",
+      message: `Heart rate below minimum (${point.heartRate} BPM)`,
+      timestamp: new Date(point.ts).toISOString(),
+      status: "active",
+      zone: worker.zone,
+    });
+  }
+
   return alerts;
 }
 
@@ -193,9 +238,9 @@ function buildTimeSeries(history: TelemetryPoint[]): TimeSeriesPoint[] {
     timestamp: new Date(p.ts).toISOString(),
     date: new Date(p.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     time: new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-    heartRate: estimateHeartRate(p.temperature, p.humidity),
-    temperature: Number(p.temperature.toFixed(1)),
-    airQuality: Number(p.airQuality.toFixed(0)),
+    heartRate: p.heartRate ?? 0,
+    temperature: p.temperature,
+    airQuality: p.airQuality,
   }));
 }
 
@@ -208,8 +253,10 @@ export function buildBootstrapResponse(input: {
 
   const latest = history[0];
   const latestTemp = latest?.temperature ?? 30;
-  const latestHumidity = latest?.humidity ?? 68;
   const latestAQ = latest?.airQuality ?? 180;
+  const now = Date.now();
+  const offlineAfterMs = 2 * 60 * 1000;
+  const isOffline = !latest || now - latest.ts > offlineAfterMs;
 
   const worker: Worker = {
     id: employee.id,
@@ -219,9 +266,9 @@ export function buildBootstrapResponse(input: {
     zone: employee.zone,
     deviceId: employee.deviceId,
     status: deriveStatus(latestAQ, latestTemp, thresholds),
-    heartRate: estimateHeartRate(latestTemp, latestHumidity),
-    temperature: Number(latestTemp.toFixed(1)),
-    airQuality: Number(latestAQ.toFixed(0)),
+    heartRate: latest?.heartRate ?? 0,
+    temperature: latestTemp,
+    airQuality: latestAQ,
     location: {
       x: clamp((latest?.longitude ?? 79.97) - 79.8, 0, 0.8) * 120,
       y: clamp((latest?.latitude ?? 6.92) - 6.8, 0, 0.8) * 120,
@@ -231,6 +278,20 @@ export function buildBootstrapResponse(input: {
 
   const recent = history.slice(0, 24);
   const alerts = recent.flatMap((p) => makeAlertFromPoint(p, worker, thresholds)).slice(0, 25);
+
+  if (isOffline) {
+    alerts.unshift({
+      id: `ALT-DEVICE-OFFLINE-${worker.id}`,
+      workerId: worker.id,
+      workerName: worker.name,
+      type: "device_offline",
+      severity: "low",
+      message: "Device not connected (no recent telemetry)",
+      timestamp: new Date(now).toISOString(),
+      status: "active",
+      zone: worker.zone,
+    });
+  }
 
   const dayBuckets = new Map<string, number>();
   for (const alert of alerts) {

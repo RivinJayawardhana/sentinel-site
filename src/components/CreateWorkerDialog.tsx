@@ -37,7 +37,7 @@ export function CreateWorkerDialog({ onCreated }: CreateWorkerDialogProps) {
         id,
         name,
         role,
-        deviceId: deviceId || `DEV-${id}`,
+        deviceId: deviceId.trim(),
         shift: shift as "Morning" | "Afternoon" | "Night",
         zone,
       });

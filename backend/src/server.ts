@@ -24,14 +24,22 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const assignmentSchema = z.object({
-  id: z.string(),
-  name: z.string().min(1),
-  role: z.string().min(1),
-  shift: z.enum(["Morning", "Afternoon", "Night"]),
-  zone: z.string().min(1),
-  deviceId: z.string().min(1),
-});
+const assignmentSchema = z
+  .object({
+    id: z.string(),
+    name: z.string().min(1),
+    role: z.string().optional(),
+    shift: z.enum(["Morning", "Afternoon", "Night"]).optional(),
+    zone: z.string().optional(),
+    deviceId: z.string().optional().nullable(),
+  })
+  .transform((value) => ({
+    ...value,
+    role: value.role?.trim() || "worker",
+    shift: value.shift ?? "Morning",
+    zone: value.zone?.trim() || "Zone A",
+    deviceId: value.deviceId?.trim() ?? "",
+  }));
 
 const thresholdsSchema = z.object({
   heartRate: z.object({ min: z.number(), max: z.number(), criticalMax: z.number() }),

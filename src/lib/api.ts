@@ -226,9 +226,10 @@ export type EmployeeAssignmentPayload = {
 };
 
 export function upsertEmployeeAssignment(payload: EmployeeAssignmentPayload) {
+  const normalized = { ...payload, deviceId: payload.deviceId?.trim() ?? "" };
   return requestJson<EmployeeAssignmentPayload>("/api/employee", {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalized),
   });
 }
 

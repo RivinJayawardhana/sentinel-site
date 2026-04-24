@@ -27,11 +27,12 @@ const Workers = () => {
   const workers = data?.workers ?? [];
 
   const filtered = workers.filter((w) => {
+    const deviceLabel = w.deviceId?.trim() ? w.deviceId : "None";
     const matchesSearch =
       w.name.toLowerCase().includes(search.toLowerCase()) ||
       w.id.toLowerCase().includes(search.toLowerCase()) ||
       w.role.toLowerCase().includes(search.toLowerCase()) ||
-      w.deviceId.toLowerCase().includes(search.toLowerCase());
+      deviceLabel.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || w.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -164,7 +165,7 @@ const Workers = () => {
                       <TableCell className="text-sm">{w.role}</TableCell>
                       <TableCell className="text-sm">{w.zone}</TableCell>
                       <TableCell className="text-sm">{w.shift}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{w.deviceId}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{w.deviceId?.trim() ? w.deviceId : "None"}</TableCell>
                       <TableCell className="text-sm">{w.heartRate} BPM</TableCell>
                       <TableCell className="text-sm">{w.temperature}°C</TableCell>
                       <TableCell className="text-sm">{w.airQuality}</TableCell>

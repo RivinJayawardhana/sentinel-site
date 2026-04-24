@@ -78,7 +78,7 @@ const WorkerDetails = () => {
               </div>
               <div>
                 <h2 className="text-xl font-bold">{worker.name}</h2>
-                <p className="text-sm text-muted-foreground">{worker.role} · {worker.shift} Shift · Device: {worker.deviceId}</p>
+                <p className="text-sm text-muted-foreground">{worker.role} · {worker.shift} Shift · Device: {worker.deviceId?.trim() ? worker.deviceId : "None"}</p>
               </div>
             </div>
             <Badge className={`${statusColors[worker.status]} text-sm px-3 py-1`}>
