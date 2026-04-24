@@ -14,7 +14,7 @@ import type {
 const flatRecordSchema = z.object({
   id: z.string(),
   temperature: z.number(),
-  humidity: z.number(),
+  humidity: z.number().optional(),
   air_quality: z.number(),
   latitude: z.number(),
   longitude: z.number(),
@@ -25,7 +25,7 @@ const nestedRecordSchema = z.object({
   id: z.string(),
   payload: z.object({
     temperature: z.number(),
-    humidity: z.number(),
+    humidity: z.number().optional(),
     air_quality: z.number(),
     latitude: z.number(),
     longitude: z.number(),
@@ -34,17 +34,48 @@ const nestedRecordSchema = z.object({
 
 type FlatRecord = z.infer<typeof flatRecordSchema>;
 type NestedRecord = z.infer<typeof nestedRecordSchema>;
-type SourceRecord = { id: string; fields: { temperature: number; humidity: number; air_quality: number; latitude: number; longitude: number } };
+type SourceRecord = {
+  id: string;
+  fields: { temperature: number; humidity?: number; air_quality: number; latitude: number; longitude: number };
+  deviceId?: string;
+};
+
+const normalizeDeviceId = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+function pickDeviceId(row: unknown): string | undefined {
+  if (!row || typeof row !== "object") return undefined;
+  const record = row as Record<string, unknown>;
+  const payload = typeof record.payload === "object" && record.payload !== null ? (record.payload as Record<string, unknown>) : null;
+
+  return (
+    normalizeDeviceId(record.deviceId) ??
+    normalizeDeviceId(record.device_id) ??
+    normalizeDeviceId(record.sensorId) ??
+    normalizeDeviceId(record.sensor_id) ??
+    normalizeDeviceId(record.Sensor_ID) ??
+    (payload
+      ? (normalizeDeviceId(payload.deviceId) ??
+          normalizeDeviceId(payload.device_id) ??
+          normalizeDeviceId(payload.sensorId) ??
+          normalizeDeviceId(payload.sensor_id) ??
+          normalizeDeviceId(payload.Sensor_ID))
+      : undefined)
+  );
+}
 
 function parseRecord(row: unknown): SourceRecord | null {
   const flat = flatRecordSchema.safeParse(row);
   if (flat.success) {
     const { id, ...fields } = flat.data;
-    return { id, fields };
+    return { id, fields, deviceId: pickDeviceId(row) };
   }
   const nested = nestedRecordSchema.safeParse(row);
   if (nested.success) {
-    return { id: nested.data.id, fields: nested.data.payload as FlatRecord };
+    return { id: nested.data.id, fields: nested.data.payload as FlatRecord, deviceId: pickDeviceId(row) };
   }
   return null;
 }
@@ -68,14 +99,17 @@ function estimateHeartRate(temperature: number, humidity: number): number {
   return Math.round(clamp(baseline + tempEffect + humidityEffect, 55, 145));
 }
 
-export function normalizeSourceRecords(payload: unknown, employeeId: string): TelemetryPoint[] {
+export function normalizeSourceRecords(payload: unknown, employeeId: string, deviceId?: string): TelemetryPoint[] {
   // Accept both a single object and an array
   const rows = Array.isArray(payload) ? payload : [payload];
   const points: TelemetryPoint[] = [];
+  const normalizedDeviceId = normalizeDeviceId(deviceId);
 
   for (const row of rows) {
     const source = parseRecord(row);
     if (!source) continue;
+    if (normalizedDeviceId && source.deviceId && source.deviceId !== normalizedDeviceId) continue;
+    if (normalizedDeviceId && !source.deviceId) continue;
 
     const tsFromId = Number(source.id);
     const ts = Number.isFinite(tsFromId) ? tsFromId : Date.now();
@@ -84,7 +118,7 @@ export function normalizeSourceRecords(payload: unknown, employeeId: string): Te
       telemetryId: source.id,
       ts,
       temperature: source.fields.temperature,
-      humidity: source.fields.humidity,
+      humidity: source.fields.humidity ?? 65,
       airQuality: source.fields.air_quality,
       latitude: source.fields.latitude,
       longitude: source.fields.longitude,

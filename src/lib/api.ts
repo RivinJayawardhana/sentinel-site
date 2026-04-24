@@ -1,4 +1,4 @@
-import type { BootstrapResponse, IoTReading, NotificationSettings, Thresholds, ZoneDefinition } from "@/types/monitoring";
+import type { BootstrapResponse, IoTReading, NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "@/types/monitoring";
 
 const IOT_API_URL = "https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data";
 
@@ -244,6 +244,16 @@ export function updateAlertStatus(alertId: string, status: "active" | "acknowled
 
 export function fetchZones() {
   return requestJson<{ zones: ZoneDefinition[] }>("/api/zones");
+}
+
+export function fetchEmployeeHistory(employeeId: string, limit = 120) {
+  return requestJson<TelemetryPoint[]>(
+    `/api/employee/${encodeURIComponent(employeeId)}/history?limit=${encodeURIComponent(String(limit))}`
+  );
+}
+
+export function fetchEmployeeLatest(employeeId: string) {
+  return requestJson<TelemetryPoint | null>(`/api/employee/${encodeURIComponent(employeeId)}/latest`);
 }
 
 export function createOrUpdateZone(zone: ZoneDefinition) {

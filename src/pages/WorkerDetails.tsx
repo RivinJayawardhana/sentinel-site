@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useMonitoringData, useIoTData, useAllIoTData } from "@/hooks/useMonitoringData";
+import { DEFAULT_EMPLOYEE_ID, useEmployeeHistory, useMonitoringData } from "@/hooks/useMonitoringData";
 import { useParams, useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useMemo } from "react";
@@ -16,28 +16,26 @@ const statusColors: Record<string, string> = {
 };
 
 const WorkerDetails = () => {
-  const { data, isLoading, error } = useMonitoringData();
-  const { data: iot } = useIoTData();
-  const { data: allReadings } = useAllIoTData();
   const { id } = useParams();
+  const employeeId = id ?? DEFAULT_EMPLOYEE_ID;
+  const { data, isLoading, error } = useMonitoringData(employeeId);
+  const { data: history } = useEmployeeHistory(employeeId, 120);
   const navigate = useNavigate();
   const workers = data?.workers ?? [];
   const alerts = data?.alerts ?? [];
   const worker = workers.find((w) => w.id === id);
   const workerAlerts = alerts.filter((a) => a.workerId === id);
 
-  // Build time series from all historical IoT readings (live data)
   const timeSeries = useMemo(() => {
-    if (allReadings && allReadings.length > 0) {
-      return allReadings.map((r) => ({
-        time: new Date(Number(r.id)).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-        heartRate: Math.round(r.heart_rate),
-        temperature: Number(r.temperature.toFixed(1)),
-        airQuality: Number(r.air_quality.toFixed(0)),
-      }));
-    }
-    return data?.timeSeries ?? [];
-  }, [allReadings, data?.timeSeries]);
+    if (!history || history.length === 0) return data?.timeSeries ?? [];
+    const sorted = [...history].sort((a, b) => a.ts - b.ts).slice(-60);
+    return sorted.map((p) => ({
+      time: new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      heartRate: 72 + (p.temperature - 30) * 3.2 + (p.humidity - 65) * 0.7,
+      temperature: p.temperature,
+      airQuality: p.airQuality,
+    }));
+  }, [history, data?.timeSeries]);
 
   if (isLoading) {
     return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading worker details...</div></AppLayout>;
@@ -51,14 +49,11 @@ const WorkerDetails = () => {
     return <AppLayout><div className="flex items-center justify-center h-64"><p className="text-muted-foreground">Worker not found</p></div></AppLayout>;
   }
 
-  const rawHR   = iot ? iot.heart_rate   : worker.heartRate;
-  const liveTmp = iot ? iot.temperature.toFixed(1) : worker.temperature;
-  const liveAQ  = iot ? iot.air_quality.toFixed(0) : worker.airQuality;
-  const liveHR  = rawHR > 0 ? `${Math.round(rawHR)} BPM` : "N/A";
-
-  const liveGps = iot && (iot.latitude !== 0 || iot.longitude !== 0)
-    ? `${iot.latitude.toFixed(5)}, ${iot.longitude.toFixed(5)}`
-    : worker.zone;
+  const latest = history && history.length > 0 ? history[0] : undefined;
+  const liveTmp = latest ? latest.temperature : worker.temperature;
+  const liveAQ = latest ? latest.airQuality : worker.airQuality;
+  const liveHR = latest ? `${72 + (latest.temperature - 30) * 3.2 + (latest.humidity - 65) * 0.7} BPM` : (worker.heartRate > 0 ? `${worker.heartRate} BPM` : "N/A");
+  const liveGps = worker.zone;
 
   const metrics = [
     { label: "Heart Rate",   value: liveHR,       icon: Heart,       color: "text-critical", bg: "bg-critical/10" },

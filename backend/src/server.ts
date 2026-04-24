@@ -77,6 +77,7 @@ app.get("/health", async (_req, res) => {
 app.post("/api/ingest", async (req, res) => {
   try {
     const employeeId = String(req.query.employeeId ?? config.defaultEmployeeId);
+    const employee = await getOrCreateEmployee(employeeId);
 
     const upstream = await fetch(config.telemetryApiUrl);
     if (!upstream.ok) {
@@ -84,7 +85,7 @@ app.post("/api/ingest", async (req, res) => {
     }
 
     const raw = await upstream.json();
-    const points = normalizeSourceRecords(raw, employeeId);
+    const points = normalizeSourceRecords(raw, employeeId, employee.deviceId);
 
     let inserted = 0;
     for (const point of points) {
@@ -275,7 +276,7 @@ app.get("/api/bootstrap", async (req, res) => {
         const upstream = await fetch(config.telemetryApiUrl);
         if (upstream.ok) {
           const raw = await upstream.json();
-          const points = normalizeSourceRecords(raw, employee.id);
+          const points = normalizeSourceRecords(raw, employee.id, employee.deviceId);
           for (const point of points) {
             try {
               await upsertTelemetry(point);

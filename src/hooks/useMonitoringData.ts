@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchBootstrap, fetchIoTData, fetchAllIoTReadings, fetchSettings, ingestTelemetry, updateSettings, updateEmployeeDevice, updateAlertStatus, fetchNotificationSettings, updateNotificationSettings, fetchZones, createOrUpdateZone, deleteZone } from "@/lib/api";
-import type { NotificationSettings, Thresholds, ZoneDefinition } from "@/types/monitoring";
+import { fetchBootstrap, fetchIoTData, fetchAllIoTReadings, fetchSettings, ingestTelemetry, updateSettings, updateEmployeeDevice, updateAlertStatus, fetchNotificationSettings, updateNotificationSettings, fetchZones, createOrUpdateZone, deleteZone, fetchEmployeeHistory } from "@/lib/api";
+import type { NotificationSettings, TelemetryPoint, Thresholds, ZoneDefinition } from "@/types/monitoring";
 
 export const DEFAULT_EMPLOYEE_ID = import.meta.env.VITE_EMPLOYEE_ID ?? "EMP001";
 
@@ -28,6 +28,16 @@ export function useMonitoringData(employeeId = DEFAULT_EMPLOYEE_ID) {
     queryFn: () => fetchBootstrap(employeeId),
     refetchInterval: 10000,
     staleTime: 5000,
+  });
+}
+
+export function useEmployeeHistory(employeeId: string, limit = 120) {
+  return useQuery({
+    queryKey: ["employee-history", employeeId, limit],
+    queryFn: () => fetchEmployeeHistory(employeeId, limit),
+    enabled: Boolean(employeeId),
+    refetchInterval: 5000,
+    staleTime: 4000,
   });
 }
 

@@ -70,6 +70,17 @@ export interface IoTReading {
   longitude: number;
 }
 
+export interface TelemetryPoint {
+  employeeId: string;
+  telemetryId: string;
+  ts: number;
+  temperature: number;
+  humidity: number;
+  airQuality: number;
+  latitude: number;
+  longitude: number;
+}
+
 export interface BootstrapResponse {
   workers: Worker[];
   alerts: Alert[];
