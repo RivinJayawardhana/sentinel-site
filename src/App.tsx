@@ -11,8 +11,8 @@ import WorkerDetails from "./pages/WorkerDetails";
 import LocationZones from "./pages/LocationZones";
 import AlertsCenter from "./pages/AlertsCenter";
 import Analytics from "./pages/Analytics";
-import AIInsights from "./pages/AIInsights";
 import Settings from "./pages/Settings";
+import { MLAlertProvider } from "@/context/MLAlertContext";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -29,20 +29,21 @@ const App = () => {
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Navigate to="/login" replace />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-              <Route path="/monitoring" element={<ProtectedRoute><LiveMonitoring /></ProtectedRoute>} />
-              <Route path="/workers" element={<ProtectedRoute><Workers /></ProtectedRoute>} />
-              <Route path="/workers/:id" element={<ProtectedRoute><WorkerDetails /></ProtectedRoute>} />
-              <Route path="/zones" element={<ProtectedRoute><LocationZones /></ProtectedRoute>} />
-              <Route path="/alerts" element={<ProtectedRoute><AlertsCenter /></ProtectedRoute>} />
-              <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
-              <Route path="/ai-insights" element={<ProtectedRoute><AIInsights /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <MLAlertProvider>
+              <Routes>
+                <Route path="/" element={<Navigate to="/login" replace />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                <Route path="/monitoring" element={<ProtectedRoute><LiveMonitoring /></ProtectedRoute>} />
+                <Route path="/workers" element={<ProtectedRoute><Workers /></ProtectedRoute>} />
+                <Route path="/workers/:id" element={<ProtectedRoute><WorkerDetails /></ProtectedRoute>} />
+                <Route path="/zones" element={<ProtectedRoute><LocationZones /></ProtectedRoute>} />
+                <Route path="/alerts" element={<ProtectedRoute><AlertsCenter /></ProtectedRoute>} />
+                <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </MLAlertProvider>
           </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>

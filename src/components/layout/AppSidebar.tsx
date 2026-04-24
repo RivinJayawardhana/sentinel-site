@@ -10,7 +10,6 @@ import {
   Shield,
   ChevronLeft,
   ChevronRight,
-  Brain,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -22,7 +21,6 @@ const navItems = [
   { title: "Location & Zones", url: "/zones", icon: Shield },
   { title: "Alerts", url: "/alerts", icon: AlertTriangle },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
-  { title: "AI Insights", url: "/ai-insights", icon: Brain },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

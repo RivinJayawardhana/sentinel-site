@@ -1,7 +1,7 @@
 export type WorkerStatus = "normal" | "warning" | "critical";
 export type AlertSeverity = "low" | "medium" | "high" | "critical";
 export type AlertStatus = "active" | "acknowledged" | "resolved";
-export type AlertType = "heart_rate" | "temperature" | "air_quality" | "zone_breach" | "device_offline";
+export type AlertType = "heart_rate" | "temperature" | "air_quality" | "zone_breach" | "device_offline" | "anomaly" | "trend";
 export type Zone = string;
 export type ZoneType = "safe" | "restricted" | "emergency";
 
@@ -36,6 +36,8 @@ export interface Alert {
   timestamp: string;
   status: AlertStatus;
   zone: Zone;
+  source?: "ml";
+  anomalyScore?: number;
 }
 
 export interface TimeSeriesPoint {
