@@ -69,9 +69,23 @@ export function useMLAlertEngine() {
   const cooldowns    = useRef<Map<string, number>>(new Map());
   const lastCluster  = useRef<number | null>(null);
 
-  useEffect(() => { modelsRef.current  = models;   }, [models]);
-  useEffect(() => { allDataRef.current = allData;  }, [allData]);
+  useEffect(() => { modelsRef.current   = models;   }, [models]);
+  useEffect(() => { allDataRef.current  = allData;  }, [allData]);
   useEffect(() => { mlAlertsRef.current = mlAlerts; }, [mlAlerts]);
+
+  // Show widget immediately when models load — before any reading arrives
+  useEffect(() => {
+    if (!models) return;
+    setSnapshot(prev => prev ?? {
+      activityCluster:       "Waiting for data...",
+      anomalyScore:          0,
+      isAnomaly:             false,
+      trends:                { hr: { direction: "stable", slope: 0 }, temp: { direction: "stable", slope: 0 }, aq: { direction: "stable", slope: 0 } },
+      liveCorrelations:      { hr_temp: models.correlations.hr_temp, hr_aq: models.correlations.hr_aq, temp_aq: models.correlations.temp_aq },
+      anomalyCountLast30Min: 0,
+      lastUpdated:           new Date(),
+    });
+  }, [models]);
 
   const push = useCallback((a: Alert) => {
     setMlAlerts(prev => [a, ...prev].slice(0, MAX_ALERTS));
@@ -87,7 +101,13 @@ export function useMLAlertEngine() {
 
     const m = modelsRef.current;
     if (!m) return;
-    if (!isValidReading(latestReading)) return;
+
+    // Skip alert generation for invalid readings, but still update snapshot
+    const valid = isValidReading(latestReading);
+    if (!valid) {
+      setSnapshot(prev => prev ? { ...prev, lastUpdated: new Date() } : null);
+      return;
+    }
 
     // Local helpers that always read the latest cooldown state via ref
     const can   = (key: string) => Date.now() - (cooldowns.current.get(key) ?? 0) > COOLDOWN_MS;
@@ -138,30 +158,34 @@ export function useMLAlertEngine() {
 
     // ── 4. K-Means cluster jump (sudden activity change) ──────────────────────
     const ctx = allDataRef.current.filter(isValidReading).slice(-50).map(r => [r.heart_rate, r.temperature, r.air_quality]);
+    let clusterLabel = "Analysing...";
+
     if (ctx.length >= 3) {
       const cluster = classifyWithKMeans(point, m.kmeans, ctx);
       const labels  = m.kmeans.clusterLabels;
+      clusterLabel  = labels[cluster] ?? "Unknown";
 
       if (lastCluster.current !== null && Math.abs(cluster - lastCluster.current) >= 2 && can("cluster_jump")) {
         fired("cluster_jump");
         push(makeAlert({ type: "anomaly", severity: "medium", message: `Sudden activity change: ${labels[lastCluster.current]} → ${labels[cluster]}` }));
       }
       lastCluster.current = cluster;
-
-      const anomalyCount30m = mlAlertsRef.current.filter(
-        a => a.type === "anomaly" && Date.now() - new Date(a.timestamp).getTime() < 30 * 60 * 1000
-      ).length;
-
-      setSnapshot(prev => ({
-        activityCluster:       labels[cluster] ?? "Unknown",
-        anomalyScore:          score,
-        isAnomaly:             anomaly,
-        trends:                prev?.trends ?? { hr: { direction: "stable", slope: 0 }, temp: { direction: "stable", slope: 0 }, aq: { direction: "stable", slope: 0 } },
-        liveCorrelations:      prev?.liveCorrelations ?? { hr_temp: m.correlations.hr_temp, hr_aq: m.correlations.hr_aq, temp_aq: m.correlations.temp_aq },
-        anomalyCountLast30Min: anomalyCount30m,
-        lastUpdated:           new Date(),
-      }));
     }
+
+    // Update snapshot on every valid reading — no minimum context required
+    const anomalyCount30m = mlAlertsRef.current.filter(
+      a => a.type === "anomaly" && Date.now() - new Date(a.timestamp).getTime() < 30 * 60 * 1000
+    ).length;
+
+    setSnapshot(prev => ({
+      activityCluster:       clusterLabel,
+      anomalyScore:          score,
+      isAnomaly:             anomaly,
+      trends:                prev?.trends ?? { hr: { direction: "stable", slope: 0 }, temp: { direction: "stable", slope: 0 }, aq: { direction: "stable", slope: 0 } },
+      liveCorrelations:      prev?.liveCorrelations ?? { hr_temp: m.correlations.hr_temp, hr_aq: m.correlations.hr_aq, temp_aq: m.correlations.temp_aq },
+      anomalyCountLast30Min: anomalyCount30m,
+      lastUpdated:           new Date(),
+    }));
   }, [latestReading?.id, push]);
 
   // ── Periodic: trend + correlation analysis every 5 minutes ────────────────
