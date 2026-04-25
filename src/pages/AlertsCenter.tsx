@@ -9,7 +9,7 @@ import { DEFAULT_EMPLOYEE_ID, useMonitoringData, useUpdateAlertStatus } from "@/
 import { useMLAlerts } from "@/context/MLAlertContext";
 import type { Alert } from "@/types/monitoring";
 import { useState } from "react";
-import { CheckCircle, ArrowUpCircle, Brain, ShieldCheck } from "lucide-react";
+import { CheckCircle, ArrowUpCircle, Brain, ShieldCheck, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const severityColors: Record<string, string> = {
@@ -28,7 +28,7 @@ const statusColors: Record<string, string> = {
 const AlertsCenter = () => {
   const employeeId = DEFAULT_EMPLOYEE_ID;
   const { data, isLoading, error } = useMonitoringData();
-  const { allAlerts, updateMLAlertStatus, updateThresholdAlertStatus } = useMLAlerts();
+  const { allAlerts, updateMLAlertStatus, updateThresholdAlertStatus, updateZoneAlertStatus } = useMLAlerts();
   const updateAlertStatusMutation = useUpdateAlertStatus(employeeId);
   const { toast } = useToast();
 
@@ -52,6 +52,7 @@ const AlertsCenter = () => {
     if (sourceFilter   !== "all") {
       if (sourceFilter === "ml"        && a.source !== "ml")        return false;
       if (sourceFilter === "threshold" && a.source !== "threshold") return false;
+      if (sourceFilter === "zone"      && a.source !== "zone")      return false;
       if (sourceFilter === "backend"   && a.source != null)         return false;
     }
     return true;
@@ -59,6 +60,7 @@ const AlertsCenter = () => {
 
   const mlCount        = combined.filter(a => a.source === "ml"        && a.status === "active").length;
   const thresholdCount = combined.filter(a => a.source === "threshold" && a.status === "active").length;
+  const zoneCount      = combined.filter(a => a.source === "zone"      && a.status === "active").length;
   const activeCount    = combined.filter(a => a.status === "active").length;
 
   const handleAlertStatusChange = async (status: "active" | "acknowledged" | "resolved") => {
@@ -73,6 +75,13 @@ const AlertsCenter = () => {
 
     if (selectedAlert.source === "threshold") {
       updateThresholdAlertStatus(selectedAlert.id, status);
+      setSelectedAlert({ ...selectedAlert, status });
+      toast({ title: "Alert updated", description: `Alert marked as ${status}.` });
+      return;
+    }
+
+    if (selectedAlert.source === "zone") {
+      updateZoneAlertStatus(selectedAlert.id, status);
       setSelectedAlert({ ...selectedAlert, status });
       toast({ title: "Alert updated", description: `Alert marked as ${status}.` });
       return;
@@ -112,6 +121,11 @@ const AlertsCenter = () => {
             <ShieldCheck className="h-3.5 w-3.5 text-warning" />
             {thresholdCount} threshold violations
           </span>
+          <span>·</span>
+          <span className="flex items-center gap-1">
+            <MapPin className="h-3.5 w-3.5 text-critical" />
+            {zoneCount} zone breaches
+          </span>
         </div>
 
         <Card>
@@ -126,6 +140,7 @@ const AlertsCenter = () => {
                   <SelectItem value="backend">Backend</SelectItem>
                   <SelectItem value="threshold">Threshold</SelectItem>
                   <SelectItem value="ml">ML Engine</SelectItem>
+                  <SelectItem value="zone">Zone Monitor</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -198,6 +213,11 @@ const AlertsCenter = () => {
                           THR
                         </Badge>
                       )}
+                      {a.source === "zone" && (
+                        <Badge className="ml-1.5 text-[10px] py-0 px-1 bg-critical/20 text-critical border border-critical/30">
+                          ZONE
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge className={severityColors[a.severity]}>{a.severity.toUpperCase()}</Badge>
@@ -237,6 +257,11 @@ const AlertsCenter = () => {
                     {selectedAlert.source === "threshold" && (
                       <Badge className="text-[10px] py-0 px-1.5 bg-warning/20 text-warning-foreground border border-warning/30 flex items-center gap-1">
                         <ShieldCheck className="h-3 w-3" /> Threshold Violation
+                      </Badge>
+                    )}
+                    {selectedAlert.source === "zone" && (
+                      <Badge className="text-[10px] py-0 px-1.5 bg-critical/20 text-critical border border-critical/30 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" /> Zone Breach
                       </Badge>
                     )}
                   </SheetTitle>

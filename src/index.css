@@ -91,3 +91,13 @@
       );
   }
 }
+
+/* Keep Leaflet map layers behind dialogs/popovers */
+.leaflet-container {
+  z-index: 0;
+}
+
+.leaflet-pane,
+.leaflet-control {
+  z-index: 1;
+}

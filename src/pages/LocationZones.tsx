@@ -1,3 +1,4 @@
+import "leaflet/dist/leaflet.css";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -5,46 +6,54 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import { useMonitoringData, useIoTData } from "@/hooks/useMonitoringData";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MapContainer, TileLayer, CircleMarker, Circle, Popup, Tooltip as MapTooltip, useMap } from "react-leaflet";
+import L from "leaflet";
+import { useMonitoringData, useZoneDefinitions, useUpsertZone } from "@/hooks/useMonitoringData";
 import { useDangerZones } from "@/hooks/useDangerZones";
+import { useMLAlerts } from "@/context/MLAlertContext";
 import { useAuth } from "@/context/AuthContext";
-import { useState } from "react";
-import { haversineDistance, isInsideZone } from "@/lib/geo";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Search, AlertTriangle, Plus, Trash2, MapPin,
-  ShieldAlert, Wifi, WifiOff, X, CheckCheck,
+  Search, AlertTriangle, Plus, Trash2, MapPin, ShieldAlert,
+  Wifi, WifiOff, Edit2, Navigation, CheckCircle,
 } from "lucide-react";
+import type { ZoneDefinition } from "@/types/monitoring";
 
-const zoneTypeColors: Record<string, { bg: string; border: string; text: string }> = {
-  safe:       { bg: "fill-success/20",  border: "stroke-success",  text: "text-success"  },
-  restricted: { bg: "fill-warning/20",  border: "stroke-warning",  text: "text-warning"  },
-  emergency:  { bg: "fill-critical/20", border: "stroke-critical", text: "text-critical" },
+const STATUS_COLORS: Record<string, string> = {
+  normal:   "#22c55e",
+  warning:  "#f59e0b",
+  critical: "#ef4444",
 };
 
-const statusDotColors: Record<string, string> = {
-  normal:   "fill-success",
-  warning:  "fill-warning",
-  critical: "fill-critical",
+const ZONE_TYPE_COLORS: Record<string, string> = {
+  safe:       "#22c55e",
+  restricted: "#f59e0b",
+  emergency:  "#ef4444",
 };
 
-function getZonePosition(index: number) {
-  const cols = 3;
-  const col = index % cols;
-  const row = Math.floor(index / cols);
-  return {
-    x: 30 + col * 220,
-    y: 30 + row * 120,
-    w: 180,
-    h: 90,
-  };
+// ── Auto-fit the map to all visible points (only on first load) ──────────────
+function AutoFitBounds({ points }: { points: [number, number][] }) {
+  const map     = useMap();
+  const fittedRef = useRef(false);
+
+  useEffect(() => {
+    if (fittedRef.current || points.length === 0) return;
+    fittedRef.current = true;
+    if (points.length === 1) {
+      map.setView(points[0], 16);
+    } else {
+      map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 16 });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, points.length]);
+
+  return null;
 }
 
+// ── Dialogs ──────────────────────────────────────────────────────────────────
 
 function AddZoneDialog({ onAdd, createdBy }: {
   onAdd: (zone: { name: string; centerLat: number; centerLng: number; radiusMeters: number; createdBy: string }) => void;
@@ -55,17 +64,17 @@ function AddZoneDialog({ onAdd, createdBy }: {
   const [error, setError] = useState("");
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((p) => ({ ...p, [k]: e.target.value }));
+    setForm(p => ({ ...p, [k]: e.target.value }));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const lat = parseFloat(form.centerLat);
     const lng = parseFloat(form.centerLng);
     const r   = parseFloat(form.radiusMeters);
-    if (!form.name.trim())            return setError("Name is required.");
-    if (isNaN(lat) || lat < -90 || lat > 90)  return setError("Latitude must be −90 to 90.");
-    if (isNaN(lng) || lng < -180 || lng > 180) return setError("Longitude must be −180 to 180.");
-    if (isNaN(r) || r <= 0)           return setError("Radius must be > 0 metres.");
+    if (!form.name.trim())                       return setError("Name is required.");
+    if (isNaN(lat) || lat < -90  || lat > 90)   return setError("Latitude must be −90 to 90.");
+    if (isNaN(lng) || lng < -180 || lng > 180)  return setError("Longitude must be −180 to 180.");
+    if (isNaN(r)   || r <= 0)                   return setError("Radius must be > 0 metres.");
     setError("");
     onAdd({ name: form.name.trim(), centerLat: lat, centerLng: lng, radiusMeters: r, createdBy });
     setForm({ name: "", centerLat: "", centerLng: "", radiusMeters: "50" });
@@ -87,22 +96,22 @@ function AddZoneDialog({ onAdd, createdBy }: {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
           <div className="space-y-1.5">
-            <Label htmlFor="dz-name">Zone Name</Label>
-            <Input id="dz-name" placeholder="e.g. Chemical Storage Area" value={form.name} onChange={set("name")} />
+            <Label>Zone Name</Label>
+            <Input placeholder="e.g. Chemical Storage Area" value={form.name} onChange={set("name")} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="dz-lat">Center Latitude</Label>
-              <Input id="dz-lat" type="number" step="any" placeholder="e.g. 1.3521" value={form.centerLat} onChange={set("centerLat")} />
+              <Label>Center Latitude</Label>
+              <Input type="number" step="any" placeholder="e.g. 1.3521" value={form.centerLat} onChange={set("centerLat")} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="dz-lng">Center Longitude</Label>
-              <Input id="dz-lng" type="number" step="any" placeholder="e.g. 103.8198" value={form.centerLng} onChange={set("centerLng")} />
+              <Label>Center Longitude</Label>
+              <Input type="number" step="any" placeholder="e.g. 103.8198" value={form.centerLng} onChange={set("centerLng")} />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="dz-radius">Radius (metres)</Label>
-            <Input id="dz-radius" type="number" min="1" placeholder="50" value={form.radiusMeters} onChange={set("radiusMeters")} />
+            <Label>Radius (metres)</Label>
+            <Input type="number" min="1" placeholder="50" value={form.radiusMeters} onChange={set("radiusMeters")} />
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex gap-2 pt-1">
@@ -115,26 +124,136 @@ function AddZoneDialog({ onAdd, createdBy }: {
   );
 }
 
-const LocationZones = () => {
-  const { data, isLoading, error } = useMonitoringData();
-  const { data: iot } = useIoTData();
-  const { user } = useAuth();
-  const { zones: dangerZones, breachAlerts, addZone, removeZone, dismissAlert, clearAllAlerts } = useDangerZones();
+function EditZoneGPSDialog({ zone, onSave }: {
+  zone: ZoneDefinition;
+  onSave: (updated: ZoneDefinition) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    centerLat:    zone.centerLat?.toString()    ?? "",
+    centerLng:    zone.centerLng?.toString()    ?? "",
+    radiusMeters: zone.radiusMeters?.toString() ?? "100",
+  });
+  const [error, setError] = useState("");
 
-  const workers = data?.workers ?? [];
-  const zones   = data?.zones ?? [];
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(p => ({ ...p, [k]: e.target.value }));
+
+  const handleOpen = (o: boolean) => {
+    if (o) setForm({
+      centerLat:    zone.centerLat?.toString()    ?? "",
+      centerLng:    zone.centerLng?.toString()    ?? "",
+      radiusMeters: zone.radiusMeters?.toString() ?? "100",
+    });
+    setOpen(o);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const lat = form.centerLat    ? parseFloat(form.centerLat)    : undefined;
+    const lng = form.centerLng    ? parseFloat(form.centerLng)    : undefined;
+    const r   = form.radiusMeters ? parseFloat(form.radiusMeters) : undefined;
+    if (lat !== undefined && (isNaN(lat) || lat < -90  || lat > 90))  return setError("Latitude must be −90 to 90.");
+    if (lng !== undefined && (isNaN(lng) || lng < -180 || lng > 180)) return setError("Longitude must be −180 to 180.");
+    if (r   !== undefined && (isNaN(r)   || r <= 0))                  return setError("Radius must be > 0 metres.");
+    if ((lat !== undefined) !== (lng !== undefined))                   return setError("Both lat and lng required together.");
+    setError("");
+    onSave({ ...zone, centerLat: lat, centerLng: lng, radiusMeters: r });
+    setOpen(false);
+  };
+
+  const handleClear = () => {
+    onSave({ ...zone, centerLat: undefined, centerLng: undefined, radiusMeters: undefined });
+    setOpen(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="gap-1.5 shrink-0">
+          <Edit2 className="h-3.5 w-3.5" />
+          {zone.centerLat ? "Edit GPS" : "Set GPS"}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-primary" /> GPS Boundary — {zone.name}
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Center Latitude</Label>
+              <Input type="number" step="any" placeholder="e.g. 1.3521" value={form.centerLat} onChange={set("centerLat")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Center Longitude</Label>
+              <Input type="number" step="any" placeholder="e.g. 103.8198" value={form.centerLng} onChange={set("centerLng")} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Radius (metres)</Label>
+            <Input type="number" min="1" placeholder="100" value={form.radiusMeters} onChange={set("radiusMeters")} />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            <Button type="submit" className="flex-1">Save GPS Boundary</Button>
+            {zone.centerLat && (
+              <Button type="button" variant="outline" className="text-destructive border-destructive/40" onClick={handleClear}>
+                Clear GPS
+              </Button>
+            )}
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+const LocationZones = () => {
+  const { data, isLoading, error }  = useMonitoringData();
+  const { data: zdData }            = useZoneDefinitions();
+  const upsertZone                  = useUpsertZone();
+  const { user }                    = useAuth();
+  const { zones: dangerZones, addZone, removeZone } = useDangerZones();
+  const { zoneAlerts, workerPositions, updateZoneAlertStatus } = useMLAlerts();
+
+  const workers  = data?.workers ?? [];
+  const zoneDefs = zdData?.zones ?? [];
   const [search, setSearch] = useState("");
 
-  const hasGps = !!iot && (iot.latitude !== 0 || iot.longitude !== 0);
+  const workersWithGps  = workers.filter(w => workerPositions.get(w.id)?.hasGps).length;
+  const workersInDanger = workers.filter(w => (workerPositions.get(w.id)?.inDangerZones ?? []).length > 0).length;
+  const workersOutside  = workers.filter(w => workerPositions.get(w.id)?.outsideAssignedZone).length;
+  const activeZoneAlerts = zoneAlerts.filter(a => a.status === "active").length;
+
+  // All GPS points for auto-fit (workers + zone centers)
+  const allGpsPoints = useMemo<[number, number][]>(() => {
+    const pts: [number, number][] = [];
+    workers.forEach(w => {
+      const pos = workerPositions.get(w.id);
+      if (pos?.hasGps) pts.push([pos.lat, pos.lng]);
+    });
+    dangerZones.forEach(dz => pts.push([dz.centerLat, dz.centerLng]));
+    zoneDefs.forEach(zd => {
+      if (zd.centerLat && zd.centerLng) pts.push([zd.centerLat, zd.centerLng]);
+    });
+    return pts;
+  }, [workers, workerPositions, dangerZones, zoneDefs]);
+
+  const defaultCenter: [number, number] = allGpsPoints[0] ?? [20, 0];
+  const defaultZoom = allGpsPoints.length > 0 ? 14 : 2;
 
   const filteredWorkers = search
-    ? workers.filter((w) =>
+    ? workers.filter(w =>
         w.name.toLowerCase().includes(search.toLowerCase()) ||
-        w.id.toLowerCase().includes(search.toLowerCase())
+        w.zone.toLowerCase().includes(search.toLowerCase())
       )
     : workers;
-
-  const activeBreaches = breachAlerts.filter((a) => a.status === "active");
 
   if (isLoading) {
     return <AppLayout><div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading location data…</div></AppLayout>;
@@ -145,248 +264,450 @@ const LocationZones = () => {
 
   return (
     <AppLayout>
-      <div className="grid grid-cols-12 gap-6">
-        {/* ── Left: Site Map ── */}
-        <div className="col-span-8 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search workers on map…"
-              className="pl-9"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+      <div className="space-y-6">
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Site Map Overview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <svg viewBox="0 0 700 400" className="w-full rounded-lg bg-muted/30 border">
-                {/* Grid */}
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <line key={`v${i}`} x1={i * 100} y1={0} x2={i * 100} y2={400} stroke="hsl(var(--border))" strokeWidth={0.5} />
-                ))}
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <line key={`h${i}`} x1={0} y1={i * 100} x2={700} y2={i * 100} stroke="hsl(var(--border))" strokeWidth={0.5} />
-                ))}
-
-                {/* Zones */}
-                {zones.map((zone, idx) => {
-                  const pos    = getZonePosition(idx);
-                  const colors = zoneTypeColors[zone.type];
-                  return (
-                    <g key={zone.name}>
-                      <rect x={pos.x} y={pos.y} width={pos.w} height={pos.h} className={`${colors.bg} ${colors.border}`} strokeWidth={2} rx={8} />
-                      <text x={pos.x + 10} y={pos.y + 22} fontSize={12} fontWeight={600} fill="currentColor" className={colors.text}>{zone.name}</text>
-                      <text x={pos.x + 10} y={pos.y + 38} fontSize={10} fill="hsl(var(--muted-foreground))">{zone.description}</text>
-                    </g>
-                  );
-                })}
-
-                {/* Worker dots */}
-                {filteredWorkers.map((w) => (
-                  <g key={w.id}>
-                    <circle cx={w.location.x * 7} cy={w.location.y * 4} r={8} className={statusDotColors[w.status]} opacity={0.8} />
-                    <circle cx={w.location.x * 7} cy={w.location.y * 4} r={4} fill="white" />
-                    <text x={w.location.x * 7 + 12} y={w.location.y * 4 + 4} fontSize={9} fill="hsl(var(--foreground))" fontWeight={500}>
-                      {w.name.split(" ")[0]}
-                    </text>
-                  </g>
-                ))}
-              </svg>
-
-              {/* Legend */}
-              <div className="mt-4 flex gap-6 flex-wrap">
-                {[{ label: "Safe Zone", color: "bg-success" }, { label: "Restricted", color: "bg-warning" }, { label: "Emergency", color: "bg-critical" }].map((i) => (
-                  <div key={i.label} className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className={`h-3 w-3 rounded ${i.color}`} /> {i.label}
-                  </div>
-                ))}
-                <div className="ml-4 flex gap-4">
-                  {[{ label: "Normal", color: "bg-success" }, { label: "Warning", color: "bg-warning" }, { label: "Critical", color: "bg-critical" }].map((i) => (
-                    <div key={i.label} className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <div className={`h-2.5 w-2.5 rounded-full ${i.color}`} /> {i.label}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* GPS Position Card */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                {hasGps
-                  ? <><Wifi className="h-4 w-4 text-success" /> Live GPS Position</>
-                  : <><WifiOff className="h-4 w-4 text-muted-foreground" /> GPS Position</>
-                }
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {hasGps ? (
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="rounded-lg bg-muted/50 p-3">
-                    <p className="text-xs text-muted-foreground mb-1">Latitude</p>
-                    <p className="text-lg font-bold font-mono">{iot!.latitude.toFixed(6)}</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-3">
-                    <p className="text-xs text-muted-foreground mb-1">Longitude</p>
-                    <p className="text-lg font-bold font-mono">{iot!.longitude.toFixed(6)}</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-3">
-                    <p className="text-xs text-muted-foreground mb-1">Active Breaches</p>
-                    <p className={`text-lg font-bold ${activeBreaches.length > 0 ? "text-critical" : "text-success"}`}>
-                      {activeBreaches.length}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 text-sm text-muted-foreground py-2">
-                  <WifiOff className="h-4 w-4" />
-                  <span>No GPS fix — device is reporting lat/lng as 0.0. Breach detection will activate once GPS signal is acquired.</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {/* Summary stats */}
+        <div className="grid grid-cols-4 gap-4">
+          {[
+            { label: "Workers with GPS",     value: `${workersWithGps}/${workers.length}`, color: "text-primary"  },
+            { label: "In Danger Zones",       value: workersInDanger,  color: workersInDanger  > 0 ? "text-critical" : "text-success" },
+            { label: "Outside Assigned Zone", value: workersOutside,   color: workersOutside   > 0 ? "text-warning"  : "text-success" },
+            { label: "Active Zone Alerts",    value: activeZoneAlerts, color: activeZoneAlerts > 0 ? "text-critical" : "text-success" },
+          ].map(s => (
+            <Card key={s.label}>
+              <CardContent className="p-4">
+                <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
-        {/* ── Right Panel ── */}
-        <div className="col-span-4 space-y-4">
+        <div className="grid grid-cols-12 gap-6">
 
-          {/* Add Danger Zone (admin only) */}
-          {user?.role === "admin" && (
+          {/* ── Left col ── */}
+          <div className="col-span-8 space-y-4">
+
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search workers or zones…"
+                className="pl-9"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Live Map */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-critical" /> Danger Zone Management
-                  <Badge className="ml-auto text-[10px] bg-primary/10 text-primary border-primary/20">Admin</Badge>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Navigation className="h-4 w-4 text-primary" />
+                  Live Worker Map
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">
+                    {workersWithGps} worker{workersWithGps !== 1 ? "s" : ""} tracked
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 overflow-hidden rounded-b-lg">
+                <div style={{ height: 420 }}>
+                  <MapContainer
+                    center={defaultCenter}
+                    zoom={defaultZoom}
+                    style={{ height: "100%", width: "100%" }}
+                    scrollWheelZoom
+                  >
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    />
+
+                    <AutoFitBounds points={allGpsPoints} />
+
+                    {/* GPS Zone Definition boundaries */}
+                    {zoneDefs
+                      .filter(zd => zd.centerLat && zd.centerLng && zd.radiusMeters)
+                      .map(zd => (
+                        <Circle
+                          key={`zd-${zd.name}`}
+                          center={[zd.centerLat!, zd.centerLng!]}
+                          radius={zd.radiusMeters!}
+                          pathOptions={{
+                            color:       ZONE_TYPE_COLORS[zd.type] ?? "#888",
+                            fillColor:   ZONE_TYPE_COLORS[zd.type] ?? "#888",
+                            fillOpacity: 0.08,
+                            weight:      2,
+                          }}
+                        >
+                          <MapTooltip>{zd.name} ({zd.type})</MapTooltip>
+                        </Circle>
+                      ))
+                    }
+
+                    {/* Danger zone circles */}
+                    {dangerZones.map(dz => (
+                      <Circle
+                        key={`dz-${dz.id}`}
+                        center={[dz.centerLat, dz.centerLng]}
+                        radius={dz.radiusMeters}
+                        pathOptions={{
+                          color:       "#ef4444",
+                          fillColor:   "#ef4444",
+                          fillOpacity: 0.12,
+                          weight:      2,
+                          dashArray:   "6 4",
+                        }}
+                      >
+                        <MapTooltip>⚠ Danger: {dz.name}</MapTooltip>
+                      </Circle>
+                    ))}
+
+                    {/* Worker markers */}
+                    {workers.map(w => {
+                      const pos = workerPositions.get(w.id);
+                      if (!pos?.hasGps) return null;
+                      const inDanger = pos.inDangerZones.length > 0;
+                      const color    = STATUS_COLORS[w.status] ?? "#888";
+                      return (
+                        <CircleMarker
+                          key={w.id}
+                          center={[pos.lat, pos.lng]}
+                          radius={inDanger ? 11 : 8}
+                          pathOptions={{
+                            color:       inDanger ? "#ef4444" : color,
+                            fillColor:   color,
+                            fillOpacity: 0.9,
+                            weight:      inDanger ? 3 : 2,
+                          }}
+                        >
+                          <MapTooltip direction="top" offset={[0, -10]}>
+                            <strong>{w.name}</strong>
+                            {inDanger && <span style={{ color: "#ef4444" }}> ⚠ Danger zone</span>}
+                            {pos.outsideAssignedZone && !inDanger && <span style={{ color: "#f59e0b" }}> ⚠ Outside zone</span>}
+                          </MapTooltip>
+                          <Popup>
+                            <div style={{ minWidth: 160, fontSize: 12, lineHeight: 1.6 }}>
+                              <p style={{ fontWeight: 700, marginBottom: 4 }}>{w.name}</p>
+                              <p style={{ color: "#6b7280" }}>{w.role}</p>
+                              <p>Zone: {w.zone}</p>
+                              <p>Status: <span style={{ color: color, fontWeight: 600 }}>{w.status.toUpperCase()}</span></p>
+                              <p style={{ fontFamily: "monospace", fontSize: 10, color: "#9ca3af" }}>
+                                {pos.lat.toFixed(5)}, {pos.lng.toFixed(5)}
+                              </p>
+                              {inDanger && (
+                                <p style={{ color: "#ef4444", fontWeight: 600, marginTop: 4 }}>
+                                  ⚠ In: {pos.inDangerZones.join(", ")}
+                                </p>
+                              )}
+                              {pos.outsideAssignedZone && (
+                                <p style={{ color: "#f59e0b", fontWeight: 600, marginTop: 4 }}>
+                                  Outside assigned zone
+                                </p>
+                              )}
+                            </div>
+                          </Popup>
+                        </CircleMarker>
+                      );
+                    })}
+                  </MapContainer>
+                </div>
+
+                {/* Map legend */}
+                <div className="flex flex-wrap gap-x-6 gap-y-2 px-4 py-3 border-t text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Workers:</span>
+                  {[
+                    { label: "Normal",   color: "bg-[#22c55e]" },
+                    { label: "Warning",  color: "bg-[#f59e0b]" },
+                    { label: "Critical", color: "bg-[#ef4444]" },
+                  ].map(i => (
+                    <div key={i.label} className="flex items-center gap-1.5">
+                      <div className={`h-3 w-3 rounded-full ${i.color}`} /> {i.label}
+                    </div>
+                  ))}
+                  <span className="ml-4 font-medium text-foreground">Zones:</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-3 w-8 rounded border-2 border-[#ef4444] border-dashed bg-[#ef4444]/10" /> Danger zone
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-3 w-8 rounded border-2 border-[#22c55e] bg-[#22c55e]/10" /> Safe zone
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-3 w-8 rounded border-2 border-[#f59e0b] bg-[#f59e0b]/10" /> Restricted
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Worker GPS Compliance Table */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Navigation className="h-4 w-4 text-primary" />
+                  Worker GPS Compliance
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <AddZoneDialog onAdd={addZone} createdBy={user.name} />
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Worker</TableHead>
+                      <TableHead>Assigned Zone</TableHead>
+                      <TableHead>GPS Position</TableHead>
+                      <TableHead>Danger Zones</TableHead>
+                      <TableHead>Zone Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredWorkers.map(w => {
+                      const pos = workerPositions.get(w.id);
+                      return (
+                        <TableRow key={w.id}>
+                          <TableCell>
+                            <div className="font-medium text-sm">{w.name}</div>
+                            <div className="text-xs text-muted-foreground">{w.role}</div>
+                          </TableCell>
+                          <TableCell className="text-sm">{w.zone}</TableCell>
+                          <TableCell>
+                            {pos?.hasGps ? (
+                              <div>
+                                <div className="flex items-center gap-1 text-xs text-success">
+                                  <Wifi className="h-3 w-3" /> Active
+                                </div>
+                                <div className="text-[10px] text-muted-foreground font-mono">
+                                  {pos.lat.toFixed(5)}, {pos.lng.toFixed(5)}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <WifiOff className="h-3 w-3" /> No GPS
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {pos?.inDangerZones && pos.inDangerZones.length > 0 ? (
+                              <div className="space-y-0.5">
+                                {pos.inDangerZones.map(z => (
+                                  <Badge key={z} className="text-[10px] bg-critical text-white block w-fit py-0">
+                                    ⚠ {z}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-success">Safe</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {!pos?.hasGps ? (
+                              <span className="text-xs text-muted-foreground">No GPS</span>
+                            ) : pos.outsideAssignedZone ? (
+                              <Badge className="text-[10px] bg-warning/20 text-warning-foreground border border-warning/30">
+                                Outside Zone
+                              </Badge>
+                            ) : (
+                              <Badge className="text-[10px] bg-success/20 text-success border border-success/30">
+                                In Zone
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {filteredWorkers.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">
+                          No workers found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
-          )}
 
-          {/* Active Danger Zones */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-warning" />
-                GPS Danger Zones
-                <Badge variant="outline" className="ml-auto text-xs">{dangerZones.length}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {dangerZones.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-2">
-                  {user?.role === "admin"
-                    ? "No danger zones defined. Use the form above to add one."
-                    : "No danger zones defined by admin."}
-                </p>
-              ) : (
-                dangerZones.map((dz) => {
-                  const distNow = hasGps
-                    ? haversineDistance(iot!.latitude, iot!.longitude, dz.centerLat, dz.centerLng)
-                    : null;
-                  const inside = distNow !== null && distNow <= dz.radiusMeters;
-                  return (
-                    <div key={dz.id} className={`rounded-lg border p-3 space-y-1 ${inside ? "border-critical/50 bg-critical/5" : ""}`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          {inside && <span className="inline-block h-2 w-2 rounded-full bg-critical animate-pulse" />}
-                          <span className="text-sm font-semibold">{dz.name}</span>
+            {/* Zone GPS Configuration (admin only) */}
+            {user?.role === "admin" && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-primary" />
+                    Zone GPS Configuration
+                    <Badge className="ml-auto text-[10px] bg-primary/10 text-primary border-primary/20">Admin</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {zoneDefs.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-2">No zone definitions found.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {zoneDefs.map(zd => (
+                        <div key={zd.name} className="flex items-center justify-between rounded-lg border p-3 gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">{zd.name}</p>
+                              <Badge variant="outline" className="text-[10px] capitalize">{zd.type}</Badge>
+                            </div>
+                            {zd.centerLat && zd.centerLng ? (
+                              <p className="text-xs text-success font-mono mt-0.5">
+                                GPS: {zd.centerLat.toFixed(5)}, {zd.centerLng.toFixed(5)} · r={zd.radiusMeters}m
+                              </p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground mt-0.5">No GPS boundary configured</p>
+                            )}
+                          </div>
+                          <EditZoneGPSDialog zone={zd} onSave={updated => upsertZone.mutate(updated)} />
                         </div>
-                        <div className="flex items-center gap-1">
-                          {inside && <Badge className="text-[10px] bg-critical text-white px-1.5 py-0">BREACH</Badge>}
-                          {user?.role === "admin" && (
-                            <button
-                              onClick={() => removeZone(dz.id)}
-                              className="text-muted-foreground hover:text-destructive transition-colors ml-1"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {dz.centerLat.toFixed(5)}, {dz.centerLng.toFixed(5)}
-                      </p>
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Radius: {dz.radiusMeters} m</span>
-                        {distNow !== null
-                          ? <span className={inside ? "text-critical font-medium" : "text-success"}>
-                              {distNow < 1000 ? `${Math.round(distNow)} m away` : `${(distNow / 1000).toFixed(1)} km away`}
-                            </span>
-                          : <span>No GPS fix</span>
-                        }
-                      </div>
+                      ))}
                     </div>
-                  );
-                })
-              )}
-            </CardContent>
-          </Card>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
-          {/* Zone Breach Alerts */}
-          <Card className="flex-1">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
+          {/* ── Right panel ── */}
+          <div className="col-span-4 space-y-4">
+
+            {/* Admin: Add Danger Zone */}
+            {user?.role === "admin" && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-critical" /> Danger Zone Management
+                    <Badge className="ml-auto text-[10px] bg-primary/10 text-primary border-primary/20">Admin</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <AddZoneDialog onAdd={addZone} createdBy={user.name} />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* GPS Danger Zones list */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-warning" />
+                  GPS Danger Zones
+                  <Badge variant="outline" className="ml-auto text-xs">{dangerZones.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {dangerZones.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">
+                    {user?.role === "admin"
+                      ? "No danger zones. Use the form above to add one."
+                      : "No danger zones defined by admin."}
+                  </p>
+                ) : (
+                  dangerZones.map(dz => {
+                    const workersInside = workers.filter(w =>
+                      workerPositions.get(w.id)?.inDangerZones.includes(dz.name)
+                    );
+                    const hasBreaches = workersInside.length > 0;
+                    return (
+                      <div
+                        key={dz.id}
+                        className={`rounded-lg border p-3 space-y-1.5 ${hasBreaches ? "border-critical/50 bg-critical/5" : ""}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            {hasBreaches && <span className="h-2 w-2 rounded-full bg-critical animate-pulse inline-block" />}
+                            <span className="text-sm font-semibold">{dz.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {hasBreaches && (
+                              <Badge className="text-[10px] bg-critical text-white px-1.5 py-0">
+                                {workersInside.length} inside
+                              </Badge>
+                            )}
+                            {user?.role === "admin" && (
+                              <button
+                                onClick={() => removeZone(dz.id)}
+                                className="text-muted-foreground hover:text-destructive ml-1 transition-colors"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {dz.centerLat.toFixed(5)}, {dz.centerLng.toFixed(5)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Radius: {dz.radiusMeters} m</p>
+                        {workersInside.length > 0 && (
+                          <div className="text-xs text-critical space-y-0.5 pt-1 border-t border-critical/20">
+                            {workersInside.map(w => (
+                              <div key={w.id} className="flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3 shrink-0" /> {w.name}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Zone Breach Alerts */}
+            <Card>
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-warning" />
                   Zone Breach Alerts
-                  {activeBreaches.length > 0 && (
-                    <Badge className="bg-critical text-white text-[10px] px-1.5">{activeBreaches.length} active</Badge>
+                  {activeZoneAlerts > 0 && (
+                    <Badge className="bg-critical text-white text-[10px] px-1.5">{activeZoneAlerts} active</Badge>
                   )}
                 </CardTitle>
-                {breachAlerts.length > 0 && (
-                  <button onClick={clearAllAlerts} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-                    <CheckCheck className="h-3.5 w-3.5" /> Clear all
-                  </button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2 max-h-80 overflow-y-auto">
-              {breachAlerts.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-2">No zone breach alerts recorded.</p>
-              ) : (
-                breachAlerts.map((alert) => (
-                  <div
-                    key={alert.id}
-                    className={`rounded-lg border p-3 space-y-1 ${
-                      alert.status === "active" ? "border-critical/40 bg-critical/5" : "opacity-50"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
+              </CardHeader>
+              <CardContent className="space-y-2 max-h-72 overflow-y-auto">
+                {zoneAlerts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">No zone breach alerts recorded.</p>
+                ) : (
+                  zoneAlerts.slice(0, 30).map(alert => (
+                    <div
+                      key={alert.id}
+                      className={`rounded-lg border p-2.5 space-y-1 ${
+                        alert.status === "active" ? "border-critical/40 bg-critical/5" : "opacity-60"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          {alert.status === "active" && (
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-critical animate-pulse mr-1.5 align-middle" />
+                          )}
+                          <span className="text-xs font-medium leading-snug">{alert.message}</span>
+                        </div>
                         {alert.status === "active" && (
-                          <span className="inline-block h-2 w-2 rounded-full bg-critical animate-pulse shrink-0 mt-0.5" />
+                          <button
+                            onClick={() => updateZoneAlertStatus(alert.id, "acknowledged")}
+                            title="Acknowledge"
+                            className="text-muted-foreground hover:text-foreground shrink-0 transition-colors"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                          </button>
                         )}
-                          <span className="text-xs font-semibold">{alert.message}</span>
                       </div>
-                      <button
-                        onClick={() => dismissAlert(alert.id)}
-                        className="text-muted-foreground hover:text-foreground shrink-0"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <Badge className={`text-[10px] px-1.5 py-0 ${
+                          alert.severity === "critical"
+                            ? "bg-critical text-white"
+                            : "bg-warning/20 text-warning-foreground border border-warning/30"
+                        }`}>
+                          {alert.severity.toUpperCase()}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(alert.timestamp).toLocaleTimeString()} · {alert.status}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{new Date(alert.timestamp).toLocaleTimeString()}</span>
-                    </div>
-                    {alert.status === "active" && (
-                      <Badge className="text-[10px] bg-critical/10 text-critical border-critical/30 px-1.5">
-                        ACTIVE BREACH
-                      </Badge>
-                    )}
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+          </div>
         </div>
       </div>
     </AppLayout>

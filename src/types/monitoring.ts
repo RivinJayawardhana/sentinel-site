@@ -9,6 +9,9 @@ export interface ZoneDefinition {
   name: string;
   type: ZoneType;
   description: string;
+  centerLat?: number;
+  centerLng?: number;
+  radiusMeters?: number;
 }
 
 export interface Worker {
@@ -36,7 +39,7 @@ export interface Alert {
   timestamp: string;
   status: AlertStatus;
   zone: Zone;
-  source?: "ml" | "threshold";
+  source?: "ml" | "threshold" | "zone";
   anomalyScore?: number;
 }
 
