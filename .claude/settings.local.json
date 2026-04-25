@@ -14,7 +14,8 @@
       "Bash(npx vite *)",
       "Bash(curl -s \"https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data\" -o /tmp/iot_response.json)",
       "PowerShell($response = Invoke-RestMethod -Uri \"https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data\" -Method Get; Write-Host \"Total records: $\\($response.Count\\)\"; $last = $response[-1]; Write-Host \"Latest:\"; $last | ConvertTo-Json -Depth 5)",
-      "PowerShell($response = Invoke-RestMethod -Uri \"https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data\"; Write-Host \"Total: $\\($response.Count\\)\"; $last = $response[-1]; Write-Host \"ID: $\\($last.id\\)\"; Write-Host \"HR: $\\($last.payload.heart_rate\\)\"; Write-Host \"Temp: $\\($last.payload.temperature\\)\"; Write-Host \"AQ: $\\($last.payload.air_quality\\)\"; Write-Host \"Lat: $\\($last.payload.latitude\\)\"; Write-Host \"Lng: $\\($last.payload.longitude\\)\")"
+      "PowerShell($response = Invoke-RestMethod -Uri \"https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data\"; Write-Host \"Total: $\\($response.Count\\)\"; $last = $response[-1]; Write-Host \"ID: $\\($last.id\\)\"; Write-Host \"HR: $\\($last.payload.heart_rate\\)\"; Write-Host \"Temp: $\\($last.payload.temperature\\)\"; Write-Host \"AQ: $\\($last.payload.air_quality\\)\"; Write-Host \"Lat: $\\($last.payload.latitude\\)\"; Write-Host \"Lng: $\\($last.payload.longitude\\)\")",
+      "Bash(xargs grep *)"
     ]
   }
 }

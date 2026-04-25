@@ -101,11 +101,6 @@ const Login = () => {
             <Button type="submit" className="w-full text-base font-semibold h-11" disabled={isLoading}>
               {isLoading ? "Signing In..." : "Sign In"}
             </Button>
-            <div className="mt-4 rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
-              <p className="font-semibold">Demo Credentials:</p>
-              <p>Email: <code className="text-foreground font-mono">admin@safeguard.io</code></p>
-              <p>Password: <code className="text-foreground font-mono">Admin@123</code></p>
-            </div>
           </form>
         </CardContent>
       </Card>

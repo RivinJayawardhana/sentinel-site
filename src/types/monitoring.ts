@@ -36,7 +36,7 @@ export interface Alert {
   timestamp: string;
   status: AlertStatus;
   zone: Zone;
-  source?: "ml";
+  source?: "ml" | "threshold";
   anomalyScore?: number;
 }
 

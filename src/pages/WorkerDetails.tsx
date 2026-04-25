@@ -3,37 +3,64 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_EMPLOYEE_ID, useEmployeeHistory, useMonitoringData } from "@/hooks/useMonitoringData";
+import { useMLAlerts } from "@/context/MLAlertContext";
 import { useParams, useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useMemo } from "react";
-import { Heart, Thermometer, Wind, MapPin, ArrowLeft, CheckCircle, MessageSquare, AlertTriangle } from "lucide-react";
+import { Heart, Thermometer, Wind, MapPin, ArrowLeft, CheckCircle, MessageSquare, AlertTriangle, Brain, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { DeviceChangeDialog } from "@/components/DeviceChangeDialog";
+import { cn } from "@/lib/utils";
+import type { TrendDirection } from "@/hooks/useMLAlertEngine";
 
 const statusColors: Record<string, string> = {
-  normal: "bg-success text-success-foreground",
-  warning: "bg-warning text-warning-foreground",
+  normal:   "bg-success text-success-foreground",
+  warning:  "bg-warning text-warning-foreground",
   critical: "bg-critical text-critical-foreground",
 };
+
+function clusterBadgeClass(cluster: string) {
+  if (cluster.includes("Low"))  return "bg-success/20 text-success border border-success/30";
+  if (cluster.includes("High")) return "bg-critical/20 text-critical border border-critical/30";
+  return "bg-warning/20 text-warning-foreground border border-warning/30";
+}
+
+function TrendIcon({ dir }: { dir: TrendDirection }) {
+  if (dir === "rising")  return <TrendingUp  className="h-3.5 w-3.5 text-critical" />;
+  if (dir === "falling") return <TrendingDown className="h-3.5 w-3.5 text-warning"  />;
+  return <Minus className="h-3.5 w-3.5 text-muted-foreground" />;
+}
 
 const WorkerDetails = () => {
   const { id } = useParams();
   const employeeId = id ?? DEFAULT_EMPLOYEE_ID;
   const { data, isLoading, error } = useMonitoringData(employeeId);
-  const { data: history } = useEmployeeHistory(employeeId, 120);
+  const { data: history }          = useEmployeeHistory(employeeId, 120);
+  const { allAlerts, workerSnapshots } = useMLAlerts();
+  const snapshot                       = workerSnapshots.get(employeeId) ?? null;
   const navigate = useNavigate();
+
   const workers = data?.workers ?? [];
-  const alerts = data?.alerts ?? [];
-  const worker = workers.find((w) => w.id === id);
-  const workerAlerts = alerts.filter((a) => a.workerId === id);
+  const alerts  = data?.alerts  ?? [];
+  const worker  = workers.find((w) => w.id === id);
+
+  // Combine backend alerts + client-side alerts for this worker
+  const clientAlerts   = allAlerts.filter(a => a.workerId === id);
+  const backendAlerts  = alerts.filter(a => a.workerId === id);
+  const workerAlerts   = [...clientAlerts, ...backendAlerts]
+    .reduce<typeof clientAlerts>((acc, a) => {
+      if (!acc.find(x => x.id === a.id)) acc.push(a);
+      return acc;
+    }, [])
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   const timeSeries = useMemo(() => {
     if (!history || history.length === 0) return data?.timeSeries ?? [];
     const sorted = [...history].sort((a, b) => a.ts - b.ts).slice(-60);
     return sorted.map((p) => ({
-      time: new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      heartRate: p.heartRate ?? 0,
+      time:        new Date(p.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      heartRate:   p.heartRate ?? 0,
       temperature: p.temperature,
-      airQuality: p.airQuality,
+      airQuality:  p.airQuality,
     }));
   }, [history, data?.timeSeries]);
 
@@ -49,17 +76,17 @@ const WorkerDetails = () => {
     return <AppLayout><div className="flex items-center justify-center h-64"><p className="text-muted-foreground">Worker not found</p></div></AppLayout>;
   }
 
-  const latest = history && history.length > 0 ? history[0] : undefined;
+  const latest  = history && history.length > 0 ? history[0] : undefined;
   const liveTmp = latest ? latest.temperature : worker.temperature;
-  const liveAQ = latest ? latest.airQuality : worker.airQuality;
-  const liveHR = latest ? `${latest.heartRate ?? 0} BPM` : (worker.heartRate > 0 ? `${worker.heartRate} BPM` : "N/A");
+  const liveAQ  = latest ? latest.airQuality  : worker.airQuality;
+  const liveHR  = latest ? `${latest.heartRate ?? 0} BPM` : (worker.heartRate > 0 ? `${worker.heartRate} BPM` : "N/A");
   const liveGps = worker.zone;
 
   const metrics = [
-    { label: "Heart Rate",   value: liveHR,       icon: Heart,       color: "text-critical", bg: "bg-critical/10" },
-    { label: "Temperature",  value: `${liveTmp}°C`, icon: Thermometer, color: "text-warning",  bg: "bg-warning/10"  },
-    { label: "Air Quality",  value: `${liveAQ} AQI`, icon: Wind,       color: "text-success",  bg: "bg-success/10"  },
-    { label: "Location",     value: liveGps,       icon: MapPin,      color: "text-primary",  bg: "bg-primary/10"  },
+    { label: "Heart Rate",  value: liveHR,           icon: Heart,       color: "text-critical", bg: "bg-critical/10" },
+    { label: "Temperature", value: `${liveTmp}°C`,   icon: Thermometer, color: "text-warning",  bg: "bg-warning/10"  },
+    { label: "Air Quality", value: `${liveAQ} AQI`,  icon: Wind,        color: "text-success",  bg: "bg-success/10"  },
+    { label: "Location",    value: liveGps,          icon: MapPin,      color: "text-primary",  bg: "bg-primary/10"  },
   ];
 
   return (
@@ -104,12 +131,82 @@ const WorkerDetails = () => {
           ))}
         </div>
 
+        {/* Per-Worker ML Analysis */}
+        {snapshot ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Brain className="h-4 w-4 text-primary" />
+                  ML Analysis — {worker.name}
+                </CardTitle>
+                <span className="text-xs text-muted-foreground">
+                  Updated {snapshot.lastUpdated.toLocaleTimeString()}
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Activity Level</p>
+                  <Badge className={clusterBadgeClass(snapshot.activityCluster)}>
+                    {snapshot.activityCluster}
+                  </Badge>
+                  {snapshot.isAnomaly && (
+                    <p className="text-xs text-critical font-medium">
+                      ⚠ Anomaly detected — score {snapshot.anomalyScore.toFixed(3)}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sensor Trends</p>
+                  <div className="space-y-1.5">
+                    {([
+                      { label: "Heart Rate",  dir: snapshot.trends.hr.direction,   slope: snapshot.trends.hr.slope   },
+                      { label: "Temperature", dir: snapshot.trends.temp.direction,  slope: snapshot.trends.temp.slope },
+                      { label: "Air Quality", dir: snapshot.trends.aq.direction,   slope: snapshot.trends.aq.slope   },
+                    ] as Array<{ label: string; dir: TrendDirection; slope: number }>).map(({ label, dir, slope }) => (
+                      <div key={label} className="flex items-center gap-2 text-xs">
+                        <TrendIcon dir={dir} />
+                        <span className="text-muted-foreground w-20">{label}:</span>
+                        <span className={cn(
+                          dir === "rising"  ? "text-critical" :
+                          dir === "falling" ? "text-warning"  : "text-muted-foreground",
+                        )}>
+                          {dir} ({slope >= 0 ? "+" : ""}{slope.toFixed(3)})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Correlations</p>
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    <div>HR↔Temp: <span className="text-foreground">{snapshot.liveCorrelations.hr_temp.toFixed(2)}</span></div>
+                    <div>HR↔AQ: <span className="text-foreground">{snapshot.liveCorrelations.hr_aq.toFixed(2)}</span></div>
+                    <div>Temp↔AQ: <span className="text-foreground">{snapshot.liveCorrelations.temp_aq.toFixed(2)}</span></div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          history && history.length >= 3 ? (
+            <Card>
+              <CardContent className="flex items-center gap-3 p-5 text-sm text-muted-foreground">
+                <Brain className="h-4 w-4 text-primary animate-pulse" />
+                ML engine initialising for {worker.name}...
+              </CardContent>
+            </Card>
+          ) : null
+        )}
+
         {/* Charts */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { key: "heartRate" as const, label: "Heart Rate Trend", color: "hsl(0, 76%, 47%)" },
-            { key: "temperature" as const, label: "Temperature Trend", color: "hsl(45, 96%, 56%)" },
-            { key: "airQuality" as const, label: "Air Quality Trend", color: "hsl(122, 47%, 33%)" },
+            { key: "heartRate"   as const, label: "Heart Rate Trend",   color: "hsl(0, 76%, 47%)"   },
+            { key: "temperature" as const, label: "Temperature Trend",  color: "hsl(45, 96%, 56%)"  },
+            { key: "airQuality"  as const, label: "Air Quality Trend",  color: "hsl(122, 47%, 33%)" },
           ].map((chart) => (
             <Card key={chart.key}>
               <CardHeader className="pb-2"><CardTitle className="text-sm">{chart.label}</CardTitle></CardHeader>
@@ -140,8 +237,16 @@ const WorkerDetails = () => {
                   {workerAlerts.map((a) => (
                     <div key={a.id} className="flex items-start gap-3 rounded-lg border p-3">
                       <AlertTriangle className={`h-4 w-4 mt-0.5 shrink-0 ${a.severity === "critical" ? "text-critical" : a.severity === "high" ? "text-warning" : "text-muted-foreground"}`} />
-                      <div>
-                        <p className="text-sm font-medium">{a.message}</p>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-sm font-medium">{a.message}</p>
+                          {a.source === "ml" && (
+                            <Badge className="text-[10px] py-0 px-1 bg-primary/20 text-primary border border-primary/30">ML</Badge>
+                          )}
+                          {a.source === "threshold" && (
+                            <Badge className="text-[10px] py-0 px-1 bg-warning/20 text-warning-foreground border border-warning/30">THR</Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">{new Date(a.timestamp).toLocaleString()} · {a.status}</p>
                       </div>
                     </div>

@@ -8,8 +8,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { DEFAULT_EMPLOYEE_ID, useMonitoringData, useUpdateAlertStatus } from "@/hooks/useMonitoringData";
 import { useMLAlerts } from "@/context/MLAlertContext";
 import type { Alert } from "@/types/monitoring";
-import { useState, useMemo } from "react";
-import { CheckCircle, ArrowUpCircle, Brain } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle, ArrowUpCircle, Brain, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const severityColors: Record<string, string> = {
@@ -28,39 +28,51 @@ const statusColors: Record<string, string> = {
 const AlertsCenter = () => {
   const employeeId = DEFAULT_EMPLOYEE_ID;
   const { data, isLoading, error } = useMonitoringData();
-  const { mlAlerts, updateMLAlertStatus } = useMLAlerts();
+  const { allAlerts, updateMLAlertStatus, updateThresholdAlertStatus } = useMLAlerts();
   const updateAlertStatusMutation = useUpdateAlertStatus(employeeId);
   const { toast } = useToast();
 
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter,   setStatusFilter]   = useState("all");
   const [typeFilter,     setTypeFilter]     = useState("all");
+  const [sourceFilter,   setSourceFilter]   = useState("all");
   const [selectedAlert,  setSelectedAlert]  = useState<Alert | null>(null);
 
-  // Merge ML alerts (newest first) with backend alerts
-  const allAlerts = useMemo<Alert[]>(() => {
-    const backend = data?.alerts ?? [];
-    return [...mlAlerts, ...backend].sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-  }, [data?.alerts, mlAlerts]);
+  // Merge client-side alerts with backend alerts
+  const backendAlerts = data?.alerts ?? [];
+  const combined = [...allAlerts, ...backendAlerts].reduce<Alert[]>((acc, a) => {
+    if (!acc.find(x => x.id === a.id)) acc.push(a);
+    return acc;
+  }, []).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  const filtered = allAlerts.filter(a => {
+  const filtered = combined.filter(a => {
     if (severityFilter !== "all" && a.severity !== severityFilter) return false;
     if (statusFilter   !== "all" && a.status   !== statusFilter)   return false;
     if (typeFilter     !== "all" && a.type     !== typeFilter)     return false;
+    if (sourceFilter   !== "all") {
+      if (sourceFilter === "ml"        && a.source !== "ml")        return false;
+      if (sourceFilter === "threshold" && a.source !== "threshold") return false;
+      if (sourceFilter === "backend"   && a.source != null)         return false;
+    }
     return true;
   });
 
-  const mlCount     = allAlerts.filter(a => a.source === "ml"      && a.status === "active").length;
-  const activeCount = allAlerts.filter(a => a.status === "active").length;
+  const mlCount        = combined.filter(a => a.source === "ml"        && a.status === "active").length;
+  const thresholdCount = combined.filter(a => a.source === "threshold" && a.status === "active").length;
+  const activeCount    = combined.filter(a => a.status === "active").length;
 
   const handleAlertStatusChange = async (status: "active" | "acknowledged" | "resolved") => {
     if (!selectedAlert) return;
 
-    // ML alerts are managed locally — no backend call needed
     if (selectedAlert.source === "ml") {
       updateMLAlertStatus(selectedAlert.id, status);
+      setSelectedAlert({ ...selectedAlert, status });
+      toast({ title: "Alert updated", description: `Alert marked as ${status}.` });
+      return;
+    }
+
+    if (selectedAlert.source === "threshold") {
+      updateThresholdAlertStatus(selectedAlert.id, status);
       setSelectedAlert({ ...selectedAlert, status });
       toast({ title: "Alert updated", description: `Alert marked as ${status}.` });
       return;
@@ -88,12 +100,17 @@ const AlertsCenter = () => {
       <div className="space-y-6">
 
         {/* Summary row */}
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
           <span>{activeCount} active alerts</span>
           <span>·</span>
           <span className="flex items-center gap-1">
             <Brain className="h-3.5 w-3.5 text-primary" />
             {mlCount} from ML engine
+          </span>
+          <span>·</span>
+          <span className="flex items-center gap-1">
+            <ShieldCheck className="h-3.5 w-3.5 text-warning" />
+            {thresholdCount} threshold violations
           </span>
         </div>
 
@@ -101,6 +118,16 @@ const AlertsCenter = () => {
           <CardHeader className="flex-row items-center justify-between pb-4">
             <CardTitle className="text-base">Alerts Management</CardTitle>
             <div className="flex items-center gap-3 flex-wrap">
+
+              <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <SelectTrigger className="w-36 h-9 text-xs"><SelectValue placeholder="Source" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sources</SelectItem>
+                  <SelectItem value="backend">Backend</SelectItem>
+                  <SelectItem value="threshold">Threshold</SelectItem>
+                  <SelectItem value="ml">ML Engine</SelectItem>
+                </SelectContent>
+              </Select>
 
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger className="w-40 h-9 text-xs"><SelectValue placeholder="Type" /></SelectTrigger>
@@ -166,6 +193,11 @@ const AlertsCenter = () => {
                           ML
                         </Badge>
                       )}
+                      {a.source === "threshold" && (
+                        <Badge className="ml-1.5 text-[10px] py-0 px-1 bg-warning/20 text-warning-foreground border border-warning/30">
+                          THR
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge className={severityColors[a.severity]}>{a.severity.toUpperCase()}</Badge>
@@ -200,6 +232,11 @@ const AlertsCenter = () => {
                     {selectedAlert.source === "ml" && (
                       <Badge className="text-[10px] py-0 px-1.5 bg-primary/20 text-primary border border-primary/30 flex items-center gap-1">
                         <Brain className="h-3 w-3" /> ML Generated
+                      </Badge>
+                    )}
+                    {selectedAlert.source === "threshold" && (
+                      <Badge className="text-[10px] py-0 px-1.5 bg-warning/20 text-warning-foreground border border-warning/30 flex items-center gap-1">
+                        <ShieldCheck className="h-3 w-3" /> Threshold Violation
                       </Badge>
                     )}
                   </SheetTitle>
