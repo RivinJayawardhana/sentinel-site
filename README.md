@@ -1,92 +1,133 @@
 # Sentinel Monitoring Platform
 
-This project now includes:
+![System diagram](images/architecturediagram.png)
 
-1. React frontend (Vite + TypeScript + shadcn)
-2. Cloud-ready backend (Express + DynamoDB)
-3. Real telemetry ingestion from AWS API endpoint
-4. Single-employee assignment workflow for live monitoring
+Sentinel is a real-time safety monitoring system that streams sensor data to AWS, applies lightweight ML checks, and surfaces alerts in a React dashboard.
 
-## Architecture
+![Live monitoring preview](images/livedemoimage.png)
 
-1. Backend ingests telemetry from:
-	`https://76ezf3ssob.execute-api.eu-north-1.amazonaws.com/apistage/data`
-2. Backend stores normalized records in DynamoDB.
-3. Frontend reads monitoring snapshot from backend via React Query.
-4. Threshold settings are persisted to DynamoDB.
+## Project Overview
 
-## DynamoDB Tables
+- Frontend: React (Vite + TypeScript + shadcn)
+- Backend: Express + DynamoDB
+- Telemetry: AWS IoT Core -> Lambda -> DynamoDB
+- Monitoring: live dashboards, alerts, and thresholds
 
-Create these tables in `eu-north-1` (or your selected region):
+![Sensor setup](images/sensorimage.png)
 
-1. `sentinel-employees`
-	- Partition key: `id` (String)
-
-2. `sentinel-telemetry`
-	- Partition key: `employeeId` (String)
-	- Sort key: `sk` (String)
-
-3. `sentinel-settings`
-	- Partition key: `employeeId` (String)
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and update values.
-
-Key values:
-
-1. `VITE_BACKEND_API_URL` (frontend -> backend URL)
-2. `VITE_EMPLOYEE_ID` (assigned employee)
-3. `AWS_REGION`
-4. `DDB_EMPLOYEE_TABLE`
-5. `DDB_TELEMETRY_TABLE`
-6. `DDB_SETTINGS_TABLE`
-7. `DEFAULT_EMPLOYEE_ID`
-
-Set AWS credentials using one of:
-
-1. `aws configure`
-2. Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
-3. IAM role (recommended in deployed environment)
-
-## Run Locally
-
-Install dependencies:
+## Installation
 
 ```sh
 npm i
 ```
 
-Start backend:
+## Local Setup
+
+1. Copy `.env.example` to `.env`.
+2. Set these values:
+	 - `VITE_BACKEND_API_URL`
+	 - `VITE_EMPLOYEE_ID`
+	 - `AWS_REGION`
+	 - `DDB_EMPLOYEE_TABLE`
+	 - `DDB_TELEMETRY_TABLE`
+	 - `DDB_SETTINGS_TABLE`
+	 - `DEFAULT_EMPLOYEE_ID`
+3. Configure AWS credentials with `aws configure` or environment variables.
+
+Run services:
 
 ```sh
 npm run backend:dev
 ```
 
-Start frontend (new terminal):
-
 ```sh
 npm run dev
 ```
 
-## Core Endpoints
+## Sensor Calibration (Short Guide)
 
-1. `GET /health`
-2. `POST /api/ingest?employeeId=EMP001`
-3. `GET /api/bootstrap?employeeId=EMP001&sync=true`
-4. `PUT /api/employee`
-5. `GET /api/settings?employeeId=EMP001`
-6. `PUT /api/settings?employeeId=EMP001`
-7. `GET /api/employee/:id/latest`
-8. `GET /api/employee/:id/history?limit=120`
-9. `GET /api/employee/:id/alerts`
+### Temperature Sensor (DS18B20)
 
-## Cloud Deployment Notes
+- Method: compare against a reference thermometer at room and elevated temps.
+- Apply offset: `temperature = rawTemperature + calibrationOffset`.
+- Typical offset: +/- 0.5C; smooth with moving average.
 
-For global access:
+### Heart Rate Sensor (MAX30102)
+
+- Method: compare with manual pulse count and a smartwatch.
+- Filter unstable readings; discard `heartRate < 40 || heartRate > 180`.
+- Rolling average with window size 5; peak detection for stable BPM.
+
+### Air Quality Sensor (MQ-135)
+
+- Warm-up: 24-48 hours; measure baseline R0 in clean air.
+- Formula: `RS = (Vcc - Vout) / Vout`, `Ratio = RS / R0`.
+- Classification: < 1000 Good, 1000-2000 Moderate, > 2000 Dangerous.
+
+### GPS Module
+
+- Validate against known coordinates; discard `latitude == 0 || longitude == 0`.
+
+## Data Preprocessing + ML (Short)
+
+- Remove invalid readings, replace missing values with defaults.
+- Remove outliers using Z-score filtering.
+- Detect stuck sensors with `isSensorStuck(values, windowSize)`.
+- Lightweight ML checks for risk scoring and alert thresholds.
+
+## AWS Configuration (Quick)
+
+### AWS IoT Core
+
+1. Create Thing with unique `sensor_id`.
+2. Generate certificates (X.509, private key, public key).
+3. Attach policy:
+
+```json
+{
+	"Effect": "Allow",
+	"Action": "iot:*",
+	"Resource": "*"
+}
+```
+
+4. MQTT endpoint: `xxxxxxxx-ats.iot.region.amazonaws.com` on port `8883`.
+5. Topic: `health/sensors`.
+
+### AWS Lambda
+
+- Runtime: Python 3.x
+- Trigger: AWS IoT Rule -> Lambda
+- Env vars:
+	- `TABLE_NAME=HealthData`
+	- `SNS_TOPIC_ARN=arn:aws:sns:region:account-id:HealthAlerts`
+
+### DynamoDB
+
+- Table: `HealthData`
+- Primary key: `id` (String)
+- Fields: `sensor_id`, `temperature`, `heart_rate`, `air_quality`, `latitude`, `longitude`, `timestamp`, `health_status`, `air_status`
+
+### SNS Alerts
+
+- Topic: `HealthAlerts`
+- Subscriptions: email and SMS
+
+## Deployment Guide (Short)
 
 1. Deploy backend to AWS Lambda + API Gateway or ECS/Fargate.
-2. Keep DynamoDB tables in cloud region.
-3. Enable CORS on backend/API Gateway for your frontend domain.
-4. Use Cognito/JWT auth before production rollout.
+2. Keep DynamoDB tables in the same region as Lambda.
+3. Enable CORS for the frontend domain.
+4. Use TLS for device connections and API traffic.
+
+## System Flow Summary
+
+Sensors -> ESP32 -> MQTT -> AWS IoT Core -> Lambda -> DynamoDB -> Dashboard + Alerts
+
+## Best Practices
+
+- TLS-secured device communication
+- Cooldown mechanism to prevent alert spam
+- Real-time validation before storage
+- Modular ML integration for fast updates
 
