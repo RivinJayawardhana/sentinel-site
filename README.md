@@ -44,7 +44,7 @@ npm run backend:dev
 npm run dev
 ```
 
-## Sensor Calibration (Short Guide)
+## Sensor Calibration Guide
 
 ### Temperature Sensor (DS18B20)
 
@@ -68,14 +68,14 @@ npm run dev
 
 - Validate against known coordinates; discard `latitude == 0 || longitude == 0`.
 
-## Data Preprocessing + ML (Short)
+## Data Preprocessing + ML
 
 - Remove invalid readings, replace missing values with defaults.
 - Remove outliers using Z-score filtering.
 - Detect stuck sensors with `isSensorStuck(values, windowSize)`.
 - Lightweight ML checks for risk scoring and alert thresholds.
 
-## AWS Configuration (Quick)
+## AWS Configuration
 
 ### AWS IoT Core
 
@@ -113,7 +113,7 @@ npm run dev
 - Topic: `HealthAlerts`
 - Subscriptions: email and SMS
 
-## Deployment Guide (Short)
+## Deployment Guide
 
 1. Deploy backend to AWS Lambda + API Gateway or ECS/Fargate.
 2. Keep DynamoDB tables in the same region as Lambda.
@@ -123,6 +123,14 @@ npm run dev
 ## System Flow Summary
 
 Sensors -> ESP32 -> MQTT -> AWS IoT Core -> Lambda -> DynamoDB -> Dashboard + Alerts
+
+## Chat Agent
+
+The chat_agent package provides the SafeguardIoT Assistant for operations support.
+
+- Routes requests to CRM actions (live snapshots, alerts, thresholds), RAG for internal docs, or web search for external info.
+- Requires explicit confirmation for write actions like updating thresholds or devices.
+- Uses a synthesis step to produce a single, concise response.
 
 ## Best Practices
 

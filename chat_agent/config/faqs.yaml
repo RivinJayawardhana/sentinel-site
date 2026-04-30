@@ -1,0 +1,67 @@
+# =============================================================================
+# SAFEGUARDIOT - KNOWN FAQs
+# =============================================================================
+# These FAQs are pre-loaded into the semantic cache.
+# Run `cag_service.warm_faqs()` to generate responses for them.
+#
+# Benefits:
+# - Instant responses for common questions
+# - Semantic matching catches paraphrases
+# - Never expire (unlike history which has 24h TTL)
+# =============================================================================
+
+# Platform Overview
+general:
+  - "What is SafeGuard IoT used for?"
+  - "What does the Industrial Worker Safety Monitoring dashboard show?"
+  - "How many active workers are currently tracked?"
+  - "How can I view live worker status by zone, status, and shift?"
+
+# Live Monitoring
+monitoring:
+  - "Where can I monitor real-time worker vitals?"
+  - "How often does the live sensor monitoring page refresh?"
+  - "Can I see temperature, heart rate, AQI, and GPS coordinates in real time?"
+  - "How can I view the last 10 minutes of worker vitals?"
+
+# Workers Management
+workers:
+  - "How do I create a new worker profile?"
+  - "What worker details are shown in the workers table?"
+  - "Can I see worker role, zone, shift, and device ID in one place?"
+  - "How do I check worker status across normal, warning, and critical?"
+
+# Alerts Management
+alerts:
+  - "Where can I view safety alerts?"
+  - "How do I filter alerts by severity and status?"
+  - "What fields are available in the alerts table?"
+  - "How can I track active alerts by worker and zone?"
+
+# Zone Safety
+zones:
+  - "How do I view the site map and configured zones?"
+  - "Where can I check live GPS position and active breaches?"
+  - "How can I manage danger zones in the system?"
+  - "How do I monitor zone breach alerts?"
+
+# Analytics & Reporting
+analytics:
+  - "What analytics are available for worker safety data?"
+  - "Can I view heart rate trends and alerts per day?"
+  - "How do I filter analytics by time range, worker, zone, and status?"
+  - "How do I export analytics data to CSV?"
+
+# AI Insights
+ai_insights:
+  - "What AI-powered safety insights are available?"
+  - "How many samples are used to train the safety models?"
+  - "Can I see linear regression trends for heart rate, temperature, and air quality?"
+  - "How does the system use live readings with pre-trained models?"
+
+# Settings & Administration
+settings:
+  - "How do I configure warning and critical thresholds?"
+  - "Where can I set heart rate, temperature, and AQI alert thresholds?"
+  - "Can I manage zones, devices, notification settings, and user roles?"
+  - "How do I save updated alert thresholds?"
