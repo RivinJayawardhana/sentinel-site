@@ -3,14 +3,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMonitoringData, useEmployeeHistory } from "@/hooks/useMonitoringData";
 import { useMLAlerts } from "@/context/MLAlertContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
-import { Download, Users, ShieldAlert, AlertTriangle, Brain, X, Link2 } from "lucide-react";
+import { Download, Users, ShieldAlert, AlertTriangle, Brain, X, Link2, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TelemetryPoint } from "@/types/monitoring";
 
