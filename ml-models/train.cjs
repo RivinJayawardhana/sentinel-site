@@ -33,6 +33,22 @@ function std(a, m = mean(a)) {
 function rmse(actual, predicted) {
   return Math.sqrt(actual.reduce((s, v, i) => s + (v - predicted[i]) ** 2, 0) / actual.length);
 }
+function mae(actual, predicted) {
+  return actual.reduce((s, v, i) => s + Math.abs(v - predicted[i]), 0) / actual.length;
+}
+function confusionMetrics(tp, tn, fp, fn) {
+  const total = tp + tn + fp + fn || 1;
+  const accuracy = (tp + tn) / total;
+  const precision = tp / (tp + fp || 1);
+  const recall = tp / (tp + fn || 1);
+  const f1 = (2 * precision * recall) / (precision + recall || 1);
+  return {
+    accuracy: parseFloat(accuracy.toFixed(4)),
+    precision: parseFloat(precision.toFixed(4)),
+    recall: parseFloat(recall.toFixed(4)),
+    f1: parseFloat(f1.toFixed(4)),
+  };
+}
 function percentile(sorted, p) {
   const idx = (p / 100) * (sorted.length - 1);
   const lo = Math.floor(idx), hi = Math.ceil(idx);
@@ -67,17 +83,19 @@ function trainLinearRegression(y) {
   const ssRes = train.reduce((s, yi, i) => s + (yi - predicted[i]) ** 2, 0);
   const trainR2 = Math.max(0, 1 - ssRes / ssTot);
   const trainRmse = rmse(train, predicted);
+  const trainMae = mae(train, predicted);
 
   const testPredicted = test.map((_, j) => slope * (n + j) + intercept);
   const testRmseVal = test.length > 0 ? rmse(test, testPredicted) : trainRmse;
+  const testMaeVal = test.length > 0 ? mae(test, testPredicted) : trainMae;
   const testMy = test.length > 0 ? mean(test) : my;
   const testSsTot = test.reduce((s, yi) => s + (yi - testMy) ** 2, 0) || 1;
   const testSsRes = test.reduce((s, yi, i) => s + (yi - testPredicted[i]) ** 2, 0);
   const testR2 = test.length > 0 ? Math.max(0, 1 - testSsRes / testSsTot) : trainR2;
 
   return {
-    slope, intercept, trainR2, trainRmse,
-    testRmse: testRmseVal, testR2,
+    slope, intercept, trainR2, trainRmse, trainMae,
+    testRmse: testRmseVal, testR2, testMae: testMaeVal,
     trainSamples: n, testSamples: test.length,
     trainedAt: new Date().toISOString(),
   };
@@ -327,6 +345,55 @@ const kmeans = trainKMeans(kSample, 3);
 console.log(`    Silhouette=${kmeans.silhouette}, sizes=${kmeans.clusterSizes}`);
 console.log(`    Centroids:`, kmeans.centroids.map((c, i) => `${kmeans.clusterLabels[i]}: HR=${c[0].toFixed(1)}, T=${c[1].toFixed(1)}, AQ=${c[2].toFixed(0)}`).join(" | "));
 
+// Threshold alert metrics: learned IQR bounds vs baseline mean +/- 2*std
+const baselineBounds = (stats) => ({
+  lower: stats.mean - 2 * stats.std,
+  upper: stats.mean + 2 * stats.std,
+});
+
+const learnedBounds = {
+  heart_rate: { lower: threshHR.lowerBound, upper: threshHR.upperBound },
+  temperature: { lower: threshTemp.lowerBound, upper: threshTemp.upperBound },
+  air_quality: { lower: threshAQ.lowerBound, upper: threshAQ.upperBound },
+};
+
+const baseline = {
+  heart_rate: baselineBounds(threshHR),
+  temperature: baselineBounds(threshTemp),
+  air_quality: baselineBounds(threshAQ),
+};
+
+const isOutOfRange = (row, bounds) => (
+  row.heart_rate < bounds.heart_rate.lower || row.heart_rate > bounds.heart_rate.upper ||
+  row.temperature < bounds.temperature.lower || row.temperature > bounds.temperature.upper ||
+  row.air_quality < bounds.air_quality.lower || row.air_quality > bounds.air_quality.upper
+);
+
+let tTp = 0, tTn = 0, tFp = 0, tFn = 0;
+rows.forEach((row) => {
+  const truth = isOutOfRange(row, baseline);
+  const pred = isOutOfRange(row, learnedBounds);
+  if (truth && pred) tTp += 1;
+  if (!truth && !pred) tTn += 1;
+  if (!truth && pred) tFp += 1;
+  if (truth && !pred) tFn += 1;
+});
+const thresholdMetrics = confusionMetrics(tTp, tTn, tFp, tFn);
+
+// Isolation Forest metrics: thresholded scores vs baseline bounds (same truth as above)
+const isoFeatures = rows.map(r => [r.heart_rate, r.temperature, r.air_quality]);
+const isoScores = isoFeatures.map(p => isoScore(isoForest.trees, p, isoForest.subsampleSize));
+let iTp = 0, iTn = 0, iFp = 0, iFn = 0;
+rows.forEach((row, i) => {
+  const truth = isOutOfRange(row, baseline);
+  const pred = isoScores[i] >= isoForest.threshold;
+  if (truth && pred) iTp += 1;
+  if (!truth && !pred) iTn += 1;
+  if (!truth && pred) iFp += 1;
+  if (truth && !pred) iFn += 1;
+});
+const isolationMetrics = confusionMetrics(iTp, iTn, iFp, iFn);
+
 // ─── Assemble Output ──────────────────────────────────────────────────────────
 const output = {
   trainedAt: new Date().toISOString(),
@@ -340,11 +407,17 @@ const output = {
     temperature: regTemp,
     air_quality: regAQ,
   },
+  regressionMetrics: {
+    heart_rate: { rmse: regHR.testRmse, mae: regHR.testMae, r2: regHR.testR2 },
+    temperature: { rmse: regTemp.testRmse, mae: regTemp.testMae, r2: regTemp.testR2 },
+    air_quality: { rmse: regAQ.testRmse, mae: regAQ.testMae, r2: regAQ.testR2 },
+  },
   thresholds: {
     heart_rate: threshHR,
     temperature: threshTemp,
     air_quality: threshAQ,
   },
+  thresholdMetrics,
   correlations: {
     hr_temp: parseFloat(corrHrTemp.toFixed(4)),
     hr_aq: parseFloat(corrHrAQ.toFixed(4)),
@@ -356,6 +429,7 @@ const output = {
     },
   },
   isolationForest: isoForest,
+  isolationMetrics,
   kmeans,
 };
 

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="520" viewBox="0 0 700 520">
+<rect width="700" height="520" fill="#0b1120" />
+<text x="40" y="50" fill="#f8fafc" font-size="22" font-family="Arial">Sensor Correlation Heatmap (Pearson)</text>
+<text x="230" y="146" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">Temp</text><text x="362" y="146" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">HR</text><text x="494" y="146" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">Air</text>
+<text x="158" y="220" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="end" dominant-baseline="middle">Temp</text><text x="158" y="352" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="end" dominant-baseline="middle">HR</text><text x="158" y="484" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="end" dominant-baseline="middle">Air</text>
+
+      <rect x="170" y="160" width="120" height="120" fill="rgb(40, 230, 120)" rx="12" />
+      <text x="230" y="220" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">1.00</text>
+    
+      <rect x="302" y="160" width="120" height="120" fill="rgb(40, 181, 120)" rx="12" />
+      <text x="362" y="220" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">0.51</text>
+    
+      <rect x="434" y="160" width="120" height="120" fill="rgb(40, 203, 120)" rx="12" />
+      <text x="494" y="220" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">0.73</text>
+    
+      <rect x="170" y="292" width="120" height="120" fill="rgb(40, 181, 120)" rx="12" />
+      <text x="230" y="352" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">0.51</text>
+    
+      <rect x="302" y="292" width="120" height="120" fill="rgb(40, 230, 120)" rx="12" />
+      <text x="362" y="352" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">1.00</text>
+    
+      <rect x="434" y="292" width="120" height="120" fill="rgb(40, 164, 120)" rx="12" />
+      <text x="494" y="352" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">0.35</text>
+    
+      <rect x="170" y="424" width="120" height="120" fill="rgb(40, 203, 120)" rx="12" />
+      <text x="230" y="484" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">0.73</text>
+    
+      <rect x="302" y="424" width="120" height="120" fill="rgb(40, 164, 120)" rx="12" />
+      <text x="362" y="484" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">0.35</text>
+    
+      <rect x="434" y="424" width="120" height="120" fill="rgb(40, 230, 120)" rx="12" />
+      <text x="494" y="484" fill="#f8fafc" font-size="20" font-family="Arial" text-anchor="middle" dominant-baseline="middle">1.00</text>
+    
+</svg>

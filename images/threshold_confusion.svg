@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="520" viewBox="0 0 700 520">
+<rect width="700" height="520" fill="#0b1120" />
+<text x="40" y="50" fill="#f8fafc" font-size="22" font-family="Arial">Threshold Alerts (IQR vs Baseline)</text>
+<text x="160" y="120" fill="#94a3b8" font-size="14" font-family="Arial">Predicted</text>
+<text x="60" y="160" fill="#94a3b8" font-size="14" font-family="Arial" transform="rotate(-90 60,160)">Actual</text>
+<text x="200" y="120" fill="#94a3b8" font-size="12" font-family="Arial">Alert</text>
+<text x="380" y="120" fill="#94a3b8" font-size="12" font-family="Arial">Normal</text>
+<text x="120" y="220" fill="#94a3b8" font-size="12" font-family="Arial">Alert</text>
+<text x="120" y="400" fill="#94a3b8" font-size="12" font-family="Arial">Normal</text>
+
+      <rect x="160" y="140" width="180" height="180" fill="rgb(57, 60, 60)" rx="12" />
+      <text x="250" y="230" fill="#f8fafc" font-size="26" font-family="Arial" text-anchor="middle" dominant-baseline="middle">31</text>
+      <text x="250" y="304" fill="#e2e8f0" font-size="12" font-family="Arial" text-anchor="middle">TP</text>
+    
+
+      <rect x="360" y="140" width="180" height="180" fill="rgb(63, 60, 60)" rx="12" />
+      <text x="450" y="230" fill="#f8fafc" font-size="26" font-family="Arial" text-anchor="middle" dominant-baseline="middle">57</text>
+      <text x="450" y="304" fill="#e2e8f0" font-size="12" font-family="Arial" text-anchor="middle">FN</text>
+    
+
+      <rect x="160" y="340" width="180" height="180" fill="rgb(50, 60, 60)" rx="12" />
+      <text x="250" y="430" fill="#f8fafc" font-size="26" font-family="Arial" text-anchor="middle" dominant-baseline="middle">0</text>
+      <text x="250" y="504" fill="#e2e8f0" font-size="12" font-family="Arial" text-anchor="middle">FP</text>
+    
+
+      <rect x="360" y="340" width="180" height="180" fill="rgb(230, 60, 60)" rx="12" />
+      <text x="450" y="430" fill="#f8fafc" font-size="26" font-family="Arial" text-anchor="middle" dominant-baseline="middle">781</text>
+      <text x="450" y="504" fill="#e2e8f0" font-size="12" font-family="Arial" text-anchor="middle">TN</text>
+    
+</svg>
